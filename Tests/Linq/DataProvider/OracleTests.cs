@@ -5,14 +5,21 @@ using System.Diagnostics;
 using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
+using System.Globalization;
+using System.Collections.Generic;
+using System.Linq.Expressions;
 
 using LinqToDB;
 using LinqToDB.Common;
 using LinqToDB.Data;
+using LinqToDB.DataProvider;
 using LinqToDB.DataProvider.Oracle;
 using LinqToDB.Mapping;
-
+using LinqToDB.Tools;
 using NUnit.Framework;
+
+using Oracle.ManagedDataAccess.Client;
+using Oracle.ManagedDataAccess.Types;
 
 namespace Tests.DataProvider
 {
@@ -24,9 +31,19 @@ namespace Tests.DataProvider
 		[AttributeUsage(AttributeTargets.Method)]
 		class OracleDataContextAttribute : IncludeDataContextSourceAttribute
 		{
-			public OracleDataContextAttribute()
-				: base(ProviderName.OracleNative, ProviderName.OracleManaged)
+			public OracleDataContextAttribute(bool includeLinqService = false)
+				: base(includeLinqService, ProviderName.OracleNative, ProviderName.OracleManaged)
 			{
+			}
+		}
+
+		[AttributeUsage(AttributeTargets.Method)]
+		class OracleDataContextWithBulkCopyAttribute : OracleDataContextAttribute
+		{
+			protected override IEnumerable<Tuple<object[], string>> GetParameters(string provider)
+			{
+				yield return Tuple.Create(new object[] { provider, false }, (string)null);
+				yield return Tuple.Create(new object[] { provider, true }, (string)null);
 			}
 		}
 
@@ -94,7 +111,9 @@ namespace Tests.DataProvider
 				TestType(conn, "datetimeDataType",       new DateTime(2012, 12, 12, 12, 12, 12));
 				TestType(conn, "datetime2DataType",      new DateTime(2012, 12, 12, 12, 12, 12, 012));
 				TestType(conn, "datetimeoffsetDataType", new DateTimeOffset(2012, 12, 12, 12, 12, 12, 12, new TimeSpan(-5, 0, 0)));
-				TestType(conn, "localZoneDataType",      new DateTimeOffset(2012, 12, 12, 12, 12, 12, 12, new TimeSpan(-4, 0, 0)));
+
+				var dt = new DateTimeOffset(2012, 12, 12, 12, 12, 12, 12, TimeSpan.Zero);
+				TestType(conn, "localZoneDataType",      new DateTimeOffset(2012, 12, 12, 12, 12, 12, 12, TimeZoneInfo.Local.GetUtcOffset(dt) /* new TimeSpan(-4, 0, 0)*/));
 
 				TestType(conn, "charDataType",           '1');
 				TestType(conn, "varcharDataType",        "234");
@@ -108,11 +127,9 @@ namespace Tests.DataProvider
 
 				if (((OracleDataProvider)conn.DataProvider).IsXmlTypeSupported)
 				{
-					var res = context == ProviderName.OracleNative
-						? "<root>\n  <element strattr=\"strvalue\" intattr=\"12345\"/>\n</root>\n"
-						: "<root><element strattr=\"strvalue\" intattr=\"12345\"/></root>";
+					var res = "<root><element strattr=\"strvalue\" intattr=\"12345\"/></root>";
 
-					TestType(conn, "xmlDataType", res);
+					TestType(conn, "XMLSERIALIZE(DOCUMENT xmlDataType AS CLOB NO INDENT)", res);
 				}
 			}
 		}
@@ -132,7 +149,7 @@ namespace Tests.DataProvider
 			{
 				var sqlValue = expectedValue is bool ? (bool)(object)expectedValue? 1 : 0 : (object)expectedValue;
 
-				var sql = string.Format("SELECT Cast({0} as {1}) FROM sys.dual", sqlValue ?? "NULL", sqlType);
+				var sql = string.Format(CultureInfo.InvariantCulture, "SELECT Cast({0} as {1}) FROM sys.dual", sqlValue ?? "NULL", sqlType);
 
 				Debug.WriteLine(sql + " -> " + typeof(T));
 
@@ -499,9 +516,62 @@ namespace Tests.DataProvider
 			}
 		}
 
+		[Test, OracleDataContext]
+		public void TestTreatEmptyStringsAsNulls(string context)
+		{
+			using (var db = new TestDataConnection(context))
+			{
+				var table    = db.GetTable<OracleSpecific.StringTest>();
+				var expected = table.Where(_ => _.KeyValue == "NullValues").ToList();
+
+
+				AreEqual(expected, table.Where(_ => string.IsNullOrEmpty(_.StringValue1)));
+				AreEqual(expected, table.Where(_ => string.IsNullOrEmpty(_.StringValue2)));
+
+				AreEqual(expected, table.Where(_ => _.StringValue1 == ""));
+				AreEqual(expected, table.Where(_ => _.StringValue2 == ""));
+
+				AreEqual(expected, table.Where(_ => _.StringValue1 == null));
+				AreEqual(expected, table.Where(_ => _.StringValue2 == null));
+
+				string emptyString = string.Empty;
+				string nullString  = null;
+
+				AreEqual(expected, table.Where(_ => _.StringValue1 == emptyString));
+				AreEqual(expected, table.Where(_ => _.StringValue2 == emptyString));
+
+				AreEqual(expected, table.Where(_ => _.StringValue1 == nullString));
+				AreEqual(expected, table.Where(_ => _.StringValue2 == nullString));
+
+				AreEqual(expected, GetStringTest1(db, emptyString));
+				AreEqual(expected, GetStringTest1(db, emptyString));
+
+				AreEqual(expected, GetStringTest2(db, emptyString));
+				AreEqual(expected, GetStringTest2(db, emptyString));
+
+				AreEqual(expected, GetStringTest1(db, nullString));
+				AreEqual(expected, GetStringTest1(db, nullString));
+
+				AreEqual(expected, GetStringTest2(db, nullString));
+				AreEqual(expected, GetStringTest2(db, nullString));
+			}
+		}
+
+		private IEnumerable<OracleSpecific.StringTest> GetStringTest1(IDataContext db, string value)
+		{
+			return db.GetTable<OracleSpecific.StringTest>()
+				.Where(_ => value == _.StringValue1);
+		}
+
+		private IEnumerable<OracleSpecific.StringTest> GetStringTest2(IDataContext db, string value)
+		{
+			return db.GetTable<OracleSpecific.StringTest>()
+				.Where(_ => value == _.StringValue2);
+		}
+
 		#region DateTime Tests
 
-		[Table(Schema="TESTUSER", Name="ALLTYPES")]
+		[Table(Name="ALLTYPES")]
 		public partial class ALLTYPE
 		{
 			[Column(DataType=DataType.Decimal,        Length=22, Scale=0),               PrimaryKey,  NotNull] public decimal         ID                     { get; set; } // NUMBER
@@ -516,7 +586,7 @@ namespace Tests.DataProvider
 			[Column(DataType=DataType.Decimal,        Length=22),                           Nullable         ] public decimal?        MONEYDATATYPE          { get; set; } // NUMBER
 			[Column(DataType=DataType.Double,         Length=8),                            Nullable         ] public double?         FLOATDATATYPE          { get; set; } // BINARY_DOUBLE
 			[Column(DataType=DataType.Single,         Length=4),                            Nullable         ] public float?          REALDATATYPE           { get; set; } // BINARY_FLOAT
-			[Column(/*DataType=DataType.DateTime,       Length=7*/),                            Nullable         ] public DateTime?       DATETIMEDATATYPE       { get; set; } // DATE
+			[Column(DataType=DataType.Date),                                                Nullable         ] public DateTime?       DATETIMEDATATYPE       { get; set; } // DATE
 			[Column(DataType=DataType.DateTime2,      Length=11, Scale=6),                  Nullable         ] public DateTime?       DATETIME2DATATYPE      { get; set; } // TIMESTAMP(6)
 			[Column(DataType=DataType.DateTimeOffset, Length=13, Scale=6),                  Nullable         ] public DateTimeOffset? DATETIMEOFFSETDATATYPE { get; set; } // TIMESTAMP(6) WITH TIME ZONE
 			[Column(DataType=DataType.DateTimeOffset, Length=11, Scale=6),                  Nullable         ] public DateTimeOffset? LOCALZONEDATATYPE      { get; set; } // TIMESTAMP(6) WITH LOCAL TIME ZONE
@@ -665,6 +735,45 @@ namespace Tests.DataProvider
 				});
 		}
 
+		[Test, OracleDataContext]
+		public void ClauseDateTimeWithoutJointure(string context)
+		{
+			var date = DateTime.Today;
+			using (var db = new DataConnection(context))
+			{
+				var query = from a in db.GetTable<ALLTYPE>()
+							where a.DATETIMEDATATYPE == date
+							select a;
+
+				query.FirstOrDefault();
+
+				Assert.That(db.Command.Parameters.Count, Is.EqualTo(1));
+
+				var parm = (IDbDataParameter)db.Command.Parameters[0];
+				Assert.That(parm.DbType, Is.EqualTo(DbType.Date));
+			}
+		}
+
+		[Test, OracleDataContext]
+		public void ClauseDateTimeWithJointure(string context)
+		{
+			var date = DateTime.Today;
+			using (var db = new DataConnection(context))
+			{
+				var query = from a in db.GetTable<ALLTYPE>()
+							join b in db.GetTable<ALLTYPE>() on a.ID equals b.ID
+							where a.DATETIMEDATATYPE == date
+							select a;
+
+				query.FirstOrDefault();
+
+				Assert.That(db.Command.Parameters.Count, Is.EqualTo(1));
+
+				var parm = (IDbDataParameter)db.Command.Parameters[0];
+				Assert.That(parm.DbType, Is.EqualTo(DbType.Date));
+			}
+		}
+
 		#endregion
 
 		#region Sequence
@@ -742,16 +851,114 @@ namespace Tests.DataProvider
 			}
 		}
 
-		[Test, OracleDataContext]
-		public void BulkCopyLinqTypesMultipleRows(string context)
+		[Test, OracleDataContextWithBulkCopy(ParallelScope = ParallelScope.None)]
+		public void BulkCopyLinqTypesMultipleRows(string context, bool useAlternativeBulkCopy)
 		{
-			BulkCopyLinqTypes(context, BulkCopyType.MultipleRows);
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopyLinqTypes(context, BulkCopyType.MultipleRows);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
 		}
 
-		[Test, OracleDataContext]
-		public void BulkCopyLinqTypesProviderSpecific(string context)
+		[Test, OracleDataContextWithBulkCopy]
+		public void BulkCopyLinqTypesProviderSpecific(string context, bool useAlternativeBulkCopy)
 		{
-			BulkCopyLinqTypes(context, BulkCopyType.ProviderSpecific);
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopyLinqTypes(context, BulkCopyType.ProviderSpecific);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
+		}
+
+		[Test, OracleDataContextWithBulkCopy(ParallelScope = ParallelScope.None)]
+		public void BulkCopyRetrieveSequencesProviderSpecific(string context, bool useAlternativeBulkCopy)
+		{
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopyRetrieveSequence(context, BulkCopyType.ProviderSpecific);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
+		}
+
+		[Test, OracleDataContextWithBulkCopy]
+		public void BulkCopyRetrieveSequencesMultipleRows(string context, bool useAlternativeBulkCopy)
+		{
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopyRetrieveSequence(context, BulkCopyType.MultipleRows);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
+		}
+
+		[Test, OracleDataContextWithBulkCopy]
+		public void BulkCopyRetrieveSequencesRowByRow(string context, bool useAlternativeBulkCopy)
+		{
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopyRetrieveSequence(context, BulkCopyType.RowByRow);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
+		}
+
+		static void BulkCopyRetrieveSequence(string context, BulkCopyType bulkCopyType)
+		{
+			var data = new[]
+			{
+				new OracleSpecific.SequenceTest { Value = "Value"},
+				new OracleSpecific.SequenceTest { Value = "Value"},
+				new OracleSpecific.SequenceTest { Value = "Value"},
+				new OracleSpecific.SequenceTest { Value = "Value"},
+			};
+
+			using (var db = new TestDataConnection(context))
+			{
+				db.GetTable<OracleSpecific.SequenceTest>().Where(_ => _.Value == "SeqValue").Delete();
+
+				var options = new BulkCopyOptions
+				{
+					MaxBatchSize       = 5,
+					//RetrieveSequence   = true,
+					KeepIdentity       = true,
+					BulkCopyType       = bulkCopyType,
+					NotifyAfter        = 3,
+					RowsCopiedCallback = copied => Debug.WriteLine(copied.RowsCopied)
+				};
+
+				db.BulkCopy(options, data.RetrieveIdentity(db));
+
+				foreach (var d in data)
+				{
+					Assert.That(d.ID, Is.GreaterThan(0));
+				}
+
+				//Assert.That(options.BulkCopyType, Is.EqualTo(bulkCopyType));
+			}
 		}
 
 		[System.Data.Linq.Mapping.Table(Name = "stg_trade_information")]
@@ -796,16 +1003,34 @@ namespace Tests.DataProvider
 			}
 		}
 
-		[Test, OracleDataContext]
-		public void BulkCopy1MultipleRows(string context)
+		[Test, OracleDataContextWithBulkCopy]
+		public void BulkCopy1MultipleRows(string context, bool useAlternativeBulkCopy)
 		{
-			BulkCopy1(context, BulkCopyType.MultipleRows);
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopy1(context, BulkCopyType.MultipleRows);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
 		}
 
-		[Test, OracleDataContext]
-		public void BulkCopy1ProviderSpecific(string context)
+		[Test, OracleDataContextWithBulkCopy]
+		public void BulkCopy1ProviderSpecific(string context, bool useAlternativeBulkCopy)
 		{
-			BulkCopy1(context, BulkCopyType.ProviderSpecific);
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopy1(context, BulkCopyType.ProviderSpecific);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
 		}
 
 		static void BulkCopy21(string context, BulkCopyType bulkCopyType)
@@ -841,16 +1066,34 @@ namespace Tests.DataProvider
 			}
 		}
 
-		[Test, OracleDataContext]
-		public void BulkCopy21MultipleRows(string context)
+		[Test, OracleDataContextWithBulkCopy(ParallelScope = ParallelScope.None)]
+		public void BulkCopy21MultipleRows(string context, bool useAlternativeBulkCopy)
 		{
-			BulkCopy21(context, BulkCopyType.MultipleRows);
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopy21(context, BulkCopyType.MultipleRows);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
 		}
 
-		[Test, OracleDataContext]
-		public void BulkCopy21ProviderSpecific(string context)
+		[Test, OracleDataContextWithBulkCopy]
+		public void BulkCopy21ProviderSpecific(string context, bool useAlternativeBulkCopy)
 		{
-			BulkCopy21(context, BulkCopyType.ProviderSpecific);
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopy21(context, BulkCopyType.ProviderSpecific);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
 		}
 
 		static void BulkCopy22(string context, BulkCopyType bulkCopyType)
@@ -883,16 +1126,34 @@ namespace Tests.DataProvider
 			}
 		}
 
-		[Test, OracleDataContext]
-		public void BulkCopy22MultipleRows(string context)
+		[Test, OracleDataContextWithBulkCopy]
+		public void BulkCopy22MultipleRows(string context, bool useAlternativeBulkCopy)
 		{
-			BulkCopy22(context, BulkCopyType.MultipleRows);
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopy22(context, BulkCopyType.MultipleRows);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
 		}
 
-		[Test, OracleDataContext]
-		public void BulkCopy22ProviderSpecific(string context)
+		[Test, OracleDataContextWithBulkCopy]
+		public void BulkCopy22ProviderSpecific(string context, bool useAlternativeBulkCopy)
 		{
-			BulkCopy22(context, BulkCopyType.ProviderSpecific);
+			try
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				BulkCopy22(context, BulkCopyType.ProviderSpecific);
+			}
+			finally
+			{
+				OracleTools.UseAlternativeBulkCopy = false;
+			}
 		}
 
 		#endregion
@@ -1258,15 +1519,19 @@ namespace Tests.DataProvider
 		public void OverflowTest(string context)
 		{
 			var func = OracleTools.DataReaderGetDecimal;
-
-			OracleTools.DataReaderGetDecimal = GetDecimal;
-
-			using (var db = new DataConnection(context))
+			try
 			{
-				var list = db.GetTable<DecimalOverflow>().ToList();
-			}
+				OracleTools.DataReaderGetDecimal = GetDecimal;
 
-			OracleTools.DataReaderGetDecimal = func;
+				using (var db = new DataConnection(context))
+				{
+					var list = db.GetTable<DecimalOverflow>().ToList();
+				}
+			}
+			finally
+			{
+				OracleTools.DataReaderGetDecimal = func;
+			}
 		}
 
 		const int ClrPrecision = 29;
@@ -1301,15 +1566,495 @@ namespace Tests.DataProvider
 		public void OverflowTest2(string context)
 		{
 			var func = OracleTools.DataReaderGetDecimal;
+			try
+			{
 
-			OracleTools.DataReaderGetDecimal = (rd,idx) => { throw new Exception(); };
+				OracleTools.DataReaderGetDecimal = (rd, idx) => { throw new Exception(); };
+
+				using (var db = new DataConnection(context))
+				{
+					var list = db.GetTable<DecimalOverflow2>().ToList();
+				}
+			}
+			finally
+			{
+				OracleTools.DataReaderGetDecimal = func;
+			}
+		}
+
+		public class UseAlternativeBulkCopy
+		{
+			public int Id;
+			public int Value;
+
+			public override int GetHashCode()
+			{
+				return Id;
+			}
+
+			public override bool Equals(object obj)
+			{
+				var e = (UseAlternativeBulkCopy) obj;
+
+				return e.Id == Id && e.Value == Value;
+			}
+		}
+
+		[Test, OracleDataContext]
+		public void UseAlternativeBulkCopyTest(string context)
+		{
+			var data = new List<UseAlternativeBulkCopy>(100);
+			for (var i = 0; i < 100; i++)
+				data.Add(new UseAlternativeBulkCopy() {Id = i, Value = i});
 
 			using (var db = new DataConnection(context))
 			{
-				var list = db.GetTable<DecimalOverflow2>().ToList();
+				OracleTools.UseAlternativeBulkCopy = true;
+				db.CreateTable<UseAlternativeBulkCopy>();
+				try
+				{
+					db.BulkCopy(25, data);
+
+					var selected = db.GetTable<UseAlternativeBulkCopy>().ToList();
+					AreEqual(data, selected);
+				}
+				finally
+				{
+					OracleTools.UseAlternativeBulkCopy = false;
+					db.DropTable<UseAlternativeBulkCopy>();
+				}
 			}
 
-			OracleTools.DataReaderGetDecimal = func;
+		}
+
+		public class ClobEntity
+		{
+			public ClobEntity()
+			{ }
+
+			public ClobEntity(int id)
+			{
+				Id         = id;
+				ClobValue  = "Clob" .PadRight(4001, id.ToString()[0]);
+				NClobValue = "NClob".PadRight(4001, id.ToString()[0]);
+			}
+			public int Id;
+
+			[Column(DataType = DataType.Text)]
+			public string ClobValue;
+
+			[Column(DataType = DataType.NText)]
+			public string NClobValue;
+
+			public override int GetHashCode()
+			{
+				return Id;
+			}
+
+			public override bool Equals(object obj)
+			{
+				var clob = (ClobEntity) obj;
+				return    clob.Id         == Id
+					   && clob.ClobValue  == ClobValue
+					   && clob.NClobValue == NClobValue;
+			}
+		}
+
+		[Test, OracleDataContext]
+		public void ClobTest1(string context)
+		{
+			using (var db = new DataConnection(context))
+			{
+				try
+				{
+					db.CreateTable<ClobEntity>();
+					var obj = new ClobEntity(1);
+					db.Insert(obj);
+
+					var selected = db.GetTable<ClobEntity>().First(_ => _.Id == 1);
+					Assert.AreEqual(obj, selected);
+				}
+				finally
+				{
+					db.DropTable<ClobEntity>();
+				}
+
+			}
+		}
+
+		[Test, OracleDataContextWithBulkCopyAttribute]
+		public void ClobBulkCopyTest(string context, bool useAlternativeBulkCopy)
+		{
+			var data = new List<ClobEntity>(new[] {new ClobEntity(1), new ClobEntity(2)});
+
+			using (var db = new DataConnection(context))
+			{
+				OracleTools.UseAlternativeBulkCopy = useAlternativeBulkCopy;
+
+				try
+				{
+					db.CreateTable<ClobEntity>();
+					db.BulkCopy(data);
+
+					var selected = db.GetTable<ClobEntity>().ToList();
+					AreEqual(data, selected);
+				}
+				finally
+				{
+					OracleTools.UseAlternativeBulkCopy = false;
+					db.DropTable<ClobEntity>();
+				}
+
+			}
+		}
+
+		[Table(IsColumnAttributeRequired = false)]
+		public class DateTimeOffsetTable
+		{
+			public DateTimeOffset DateTimeOffsetValue;
+		}
+
+		[Test, OracleDataContext]
+		public void Issue515Test(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				try
+				{
+					var now = new DateTimeOffset(2000, 1, 1, 10, 11, 12, TimeSpan.FromHours(5));
+					db.CreateTable<DateTimeOffsetTable>();
+					db.Insert(new DateTimeOffsetTable() {DateTimeOffsetValue = now});
+					Assert.AreEqual(now, db.GetTable<DateTimeOffsetTable>().Select(_ => _.DateTimeOffsetValue).Single());
+				}
+				finally
+				{
+					db.DropTable<DateTimeOffsetTable>();
+				}
+			}
+
+		}
+
+		[Test, OracleDataContext]
+		public void Issue612Test(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				try
+				{
+					// initialize with ticks with default oracle timestamp presicion (6 fractional seconds)
+					var expected = new DateTimeOffset(636264847785126550, TimeSpan.FromHours(3));
+
+					db.CreateTable<DateTimeOffsetTable>();
+
+					db.Insert(new DateTimeOffsetTable { DateTimeOffsetValue = expected });
+
+					var actual = db.GetTable<DateTimeOffsetTable>().Select(x => x.DateTimeOffsetValue).Single();
+
+					Assert.That(actual, Is.EqualTo(expected));
+				}
+				finally
+				{
+					db.DropTable<DateTimeOffsetTable>();
+				}
+			}
+
+		}
+
+		[Test, OracleDataContext]
+		public void Issue612TestDefaultTSTZPrecisonCanDiffersOfUpTo9Ticks(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				try
+				{
+					// initialize with ticks with default DateTimeOffset presicion (7 fractional seconds for Oracle TSTZ)
+					var expected = new DateTimeOffset(636264847785126559, TimeSpan.FromHours(3));
+
+					db.CreateTable<DateTimeOffsetTable>();
+
+					db.Insert(new DateTimeOffsetTable { DateTimeOffsetValue = expected });
+
+					var actual = db.GetTable<DateTimeOffsetTable>().Select(x => x.DateTimeOffsetValue).Single();
+
+					Assert.That(actual, Is.EqualTo(expected).Within(9).Ticks);
+				}
+				finally
+				{
+					db.DropTable<DateTimeOffsetTable>();
+				}
+			}
+
+		}
+
+		public static IEnumerable<Person> PersonSelectByKey(DataConnection dataConnection, int id)
+		{
+			return dataConnection.QueryProc<Person>("Person_SelectByKey",
+				new DataParameter("pID", @id),
+				new DataParameter { Name = "retCursor", DataType = DataType.Cursor, Direction = ParameterDirection.ReturnValue });
+		}
+
+		[Test, OracleDataContext(false)]
+		public void PersonSelectByKey(string context)
+		{
+			using (var db = new TestDataConnection(context))
+			{
+				AreEqual(Person.Where(_ => _.ID == 1), PersonSelectByKey(db, 1));
+			}
+		}
+
+		[Table(Name = "ALLTYPES")]
+		public partial class ALLTYPE2
+		{
+			[Column, PrimaryKey, Identity] public decimal ID             { get; set; } // NUMBER
+			[Column,             Nullable] public byte[]  BINARYDATATYPE { get; set; } // BLOB
+			[Column,             Nullable] public byte[]  BFILEDATATYPE  { get; set; } // BFILE
+			[Column,             Nullable] public byte[]  GUIDDATATYPE   { get; set; } // RAW(16)
+		}
+
+
+		[Test, OracleDataContext]
+		public void Issue539(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				var n = 0;
+				try
+				{
+					var val = new byte[] { 1, 2, 3 };
+
+					n = Convert.ToInt32(db.GetTable<ALLTYPE2>()
+						.InsertWithIdentity(() => new ALLTYPE2 { ID = 1000, BINARYDATATYPE = val, GUIDDATATYPE = val }));
+
+					var qry = db.GetTable<ALLTYPE2>().Where(_ => _.ID == 1000 && _.GUIDDATATYPE == val);
+
+					var data = db.GetTable<ALLTYPE2>()
+						.Where(_ => _.ID == n)
+						.Select(_ => new
+						{
+							_.BINARYDATATYPE,
+							Count = qry.Count()
+						}).First();
+
+					AreEqual(val, data.BINARYDATATYPE);
+
+				}
+				finally
+				{
+					db.GetTable<ALLTYPE2>().Delete(_ => _.ID == n);
+				}
+			}
+		}
+
+		public class Issue723Table
+		{
+			[PrimaryKey, Identity, NotNull]
+			public int Id;
+
+			public string StringValue;
+		}
+
+		[Test, OracleDataContext]
+		public void Issue723Test1(string context)
+		{
+			var ms = new MappingSchema();
+			using (var db = new TestDataConnection(context))
+			{
+				db.AddMappingSchema(ms);
+
+				var currentUser = db.Execute<string>("SELECT user FROM dual");
+				db.Execute("GRANT CREATE ANY TRIGGER TO " + currentUser);
+				db.Execute("GRANT CREATE ANY SEQUENCE TO " + currentUser);
+				db.Execute("GRANT DROP ANY TRIGGER TO " + currentUser);
+				db.Execute("GRANT DROP ANY SEQUENCE TO " + currentUser);
+				db.Execute("CREATE USER Issue723Schema IDENTIFIED BY password");
+
+				try
+				{
+
+					var tableSpace = db.Execute<string>("SELECT default_tablespace FROM sys.dba_users WHERE username = 'ISSUE723SCHEMA'");
+					db.Execute("ALTER USER Issue723Schema quota unlimited on {0}".Args(tableSpace));
+
+					db.CreateTable<Issue723Table>(schemaName: "Issue723Schema");
+					Assert.That(db.LastQuery.Contains("Issue723Schema.Issue723Table"));
+
+					try
+					{
+
+						db.MappingSchema.GetFluentMappingBuilder()
+							.Entity<Issue723Table>()
+							.HasSchemaName("Issue723Schema");
+
+						for (var i = 1; i < 3; i++)
+						{
+							var id = Convert.ToInt32(db.InsertWithIdentity(new Issue723Table() { StringValue = i.ToString() }));
+							Assert.AreEqual(i, id);
+						}
+						Assert.That(db.LastQuery.Contains("Issue723Schema.Issue723Table"));
+					}
+					finally
+					{
+						db.DropTable<Issue723Table>(schemaName: "Issue723Schema");
+					}
+				}
+				finally
+				{
+					db.Execute("DROP USER Issue723Schema CASCADE");
+				}
+			}
+		}
+
+		[Test, OracleDataContext]
+		public void Issue723Test2(string context)
+		{
+			using (var db = GetDataContext(context))
+			using (new LocalTable<Issue723Table>(db))
+			{
+				Assert.True(true);
+			}
+		}
+
+		public class Issue731Table
+		{
+			public int    Id;
+			public Guid   Guid;
+			[Column(DataType = DataType.Binary)]
+			public Guid   BinaryGuid;
+			public byte[] BlobValue;
+			[Column(Length = 5)]
+			public byte[] RawValue;
+
+		}
+
+		[Test, OracleDataContext]
+		public void Issue731Test(string context)
+		{
+			using (var db = GetDataContext(context))
+			using (new LocalTable<Issue731Table>(db))
+			{
+				var origin = new Issue731Table()
+				{
+					Id         = 1,
+					Guid       = Guid.NewGuid(),
+					BinaryGuid = Guid.NewGuid(),
+					BlobValue  = new byte[] { 1, 2, 3 },
+					RawValue   = new byte[] { 4, 5, 6 }
+				};
+
+				db.Insert(origin);
+
+				var result = db.GetTable<Issue731Table>().First(_ => _.Id == 1);
+
+				Assert.AreEqual(origin.Id,         result.Id);
+				Assert.AreEqual(origin.Guid,       result.Guid);
+				Assert.AreEqual(origin.BinaryGuid, result.BinaryGuid);
+				Assert.AreEqual(origin.BlobValue,  result.BlobValue);
+				Assert.AreEqual(origin.RawValue,   result.RawValue);
+			}
+		}
+
+		class MyDate
+		{
+			public int    Year;
+			public int    Month;
+			public int    Day;
+			public int    Hour;
+			public int    Minute;
+			public int    Second;
+			public int    Nanosecond;
+			public string TimeZone;
+		}
+
+		static MyDate OracleTimeStampTZToMyDate(OracleTimeStampTZ tz)
+		{
+			return new MyDate
+			{
+				Year       = tz.Year,
+				Month      = tz.Month,
+				Day        = tz.Day,
+				Hour       = tz.Hour,
+				Minute     = tz.Minute,
+				Second     = tz.Second,
+				Nanosecond = tz.Nanosecond,
+				TimeZone   = tz.TimeZone,
+			};
+		}
+
+		static OracleTimeStampTZ MyDateToOracleTimeStampTZ(MyDate dt)
+		{
+			return dt == null ?
+				OracleTimeStampTZ.Null :
+				new OracleTimeStampTZ(dt.Year, dt.Month, dt.Day, dt.Hour, dt.Minute, dt.Second, dt.Nanosecond, dt.TimeZone);
+		}
+
+		[Table("AllTypes")]
+		class MappingTest
+		{
+			[Column] public int    ID;
+			[Column("datetimeoffsetDataType")] public MyDate MyDate;
+		}
+
+		[Test, IncludeDataContextSource(ProviderName.OracleManaged)]
+		public void CustomMappingNonstandardTypeTest(string context)
+		{
+			var dataProvider = (DataProviderBase)DataConnection.GetDataProvider(context);
+
+			// Expression to read column value from data reader.
+			//
+			dataProvider.ReaderExpressions[new ReaderInfo
+			{
+				ToType            = typeof(MyDate),
+				ProviderFieldType = typeof(OracleTimeStampTZ),
+			}] = (Expression<Func<OracleDataReader,int,MyDate>>)((rd, idx) => OracleTimeStampTZToMyDate(rd.GetOracleTimeStampTZ(idx)));
+
+			// Converts object property value to data reader parameter.
+			//
+			dataProvider.MappingSchema.SetConverter<MyDate,DataParameter>(
+				dt => new DataParameter { Value = MyDateToOracleTimeStampTZ(dt) });
+
+			// Converts object property value to SQL.
+			//
+			dataProvider.MappingSchema.SetValueToSqlConverter(typeof(MyDate), (sb,tp,v) =>
+			{
+				var value = v as MyDate;
+				if (value == null) sb.Append("NULL");
+				else               sb.AppendFormat("DATE '{0}-{1}-{2}'", value.Year, value.Month, value.Day);
+			});
+
+			// Converts object property value to SQL.
+			//
+			dataProvider.MappingSchema.SetValueToSqlConverter(typeof(OracleTimeStampTZ), (sb,tp,v) =>
+			{
+				var value = (OracleTimeStampTZ)v;
+				if (value.IsNull) sb.Append("NULL");
+				else              sb.AppendFormat("DATE '{0}-{1}-{2}'", value.Year, value.Month, value.Day);
+			});
+
+			// Maps OracleTimeStampTZ to MyDate and the other way around.
+			//
+			dataProvider.MappingSchema.SetConverter<OracleTimeStampTZ,MyDate>(OracleTimeStampTZToMyDate);
+			dataProvider.MappingSchema.SetConverter<MyDate,OracleTimeStampTZ>(MyDateToOracleTimeStampTZ);
+
+			using (var db = GetDataContext(context))
+			{
+				var table = db.GetTable<MappingTest>();
+				var list  = table.ToList();
+
+				table.Update(
+					mt => mt.ID == list[0].ID,
+					mt => new MappingTest
+					{
+						MyDate = list[0].MyDate
+					});
+
+				db.InlineParameters = true;
+
+				table.Update(
+					mt => mt.ID == list[0].ID,
+					mt => new MappingTest
+					{
+						MyDate = list[0].MyDate
+					});
+			}
 		}
 	}
 }

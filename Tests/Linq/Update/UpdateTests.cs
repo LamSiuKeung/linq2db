@@ -2,9 +2,14 @@
 using System.Collections.Generic;
 using System.Linq;
 
+#if !NOASYNC
+using System.Threading.Tasks;
+#endif
+
 using LinqToDB;
 using LinqToDB.Data;
 using LinqToDB.Mapping;
+
 using NUnit.Framework;
 
 #region ReSharper disable
@@ -41,6 +46,33 @@ namespace Tests.xUpdate
 			}
 		}
 
+#if !NOASYNC
+
+		[Test, DataContextSource]
+		public async Task Update1Async(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				try
+				{
+					var parent = new Parent1 { ParentID = 1001, Value1 = 1001 };
+
+					await db.Parent.DeleteAsync(p => p.ParentID > 1000);
+					await db.InsertAsync(parent);
+
+					Assert.AreEqual(1, await db.Parent.CountAsync (p => p.ParentID == parent.ParentID));
+					Assert.AreEqual(1, await db.Parent.UpdateAsync(p => p.ParentID == parent.ParentID, p => new Parent { ParentID = p.ParentID + 1 }));
+					Assert.AreEqual(1, await db.Parent.CountAsync (p => p.ParentID == parent.ParentID + 1));
+				}
+				finally
+				{
+					await db.Child.DeleteAsync(c => c.ChildID > 1000);
+				}
+			}
+		}
+
+#endif
+
 		[Test, DataContextSource]
 		public void Update2(string context)
 		{
@@ -63,6 +95,33 @@ namespace Tests.xUpdate
 				}
 			}
 		}
+
+#if !NOASYNC
+
+		[Test, DataContextSource]
+		public async Task Update2Async(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				try
+				{
+					var parent = new Parent1 { ParentID = 1001, Value1 = 1001 };
+
+					await db.Parent.DeleteAsync(p => p.ParentID > 1000);
+					await db.InsertAsync(parent);
+
+					Assert.AreEqual(1, await db.Parent.CountAsync(p => p.ParentID == parent.ParentID));
+					Assert.AreEqual(1, await db.Parent.Where(p => p.ParentID == parent.ParentID).UpdateAsync(p => new Parent { ParentID = p.ParentID + 1 }));
+					Assert.AreEqual(1, await db.Parent.CountAsync(p => p.ParentID == parent.ParentID + 1));
+				}
+				finally
+				{
+					await db.Child.DeleteAsync(c => c.ChildID > 1000);
+				}
+			}
+		}
+
+#endif
 
 		[Test, DataContextSource(ProviderName.Informix)]
 		public void Update3(string context)
@@ -113,6 +172,37 @@ namespace Tests.xUpdate
 				}
 			}
 		}
+
+#if !NOASYNC
+
+		[Test, DataContextSource(ProviderName.Informix)]
+		public async Task Update4Async(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				try
+				{
+					var id = 1001;
+
+					await db.Child.DeleteAsync(c => c.ChildID > 1000);
+					await db.Child.InsertAsync(() => new Child { ParentID = 1, ChildID = id});
+
+					Assert.AreEqual(1, await db.Child.CountAsync(c => c.ChildID == id));
+					Assert.AreEqual(1,
+						await db.Child
+							.Where(c => c.ChildID == id && c.Parent.Value1 == 1)
+								.Set(c => c.ChildID, c => c.ChildID + 1)
+							.UpdateAsync());
+					Assert.AreEqual(1, await db.Child.CountAsync(c => c.ChildID == id + 1));
+				}
+				finally
+				{
+					await db.Child.DeleteAsync(c => c.ChildID > 1000);
+				}
+			}
+		}
+
+#endif
 
 		[Test, DataContextSource(ProviderName.Informix)]
 		public void Update5(string context)
@@ -232,12 +322,15 @@ namespace Tests.xUpdate
 			ProviderName.SqlCe,
 			ProviderName.DB2,
 			ProviderName.Firebird,
+			TestProvName.Firebird3,
 			ProviderName.OracleNative,
 			ProviderName.OracleManaged,
-			ProviderName.PostgreSQL, 
+			ProviderName.PostgreSQL,
 			ProviderName.MySql,
 			TestProvName.MariaDB,
+			TestProvName.MySql57,
 			ProviderName.SQLite,
+			TestProvName.SQLiteMs,
 			ProviderName.Access,
 			ProviderName.SapHana)]
 		public void Update9(string context)
@@ -273,12 +366,15 @@ namespace Tests.xUpdate
 			ProviderName.SqlCe,
 			ProviderName.DB2,
 			ProviderName.Firebird,
+			TestProvName.Firebird3,
 			ProviderName.OracleNative,
 			ProviderName.OracleManaged,
 			ProviderName.PostgreSQL,
 			ProviderName.MySql,
-			TestProvName.MariaDB,
-			ProviderName.SQLite,
+			TestProvName.MariaDB, 
+			TestProvName.MySql57,
+			ProviderName.SQLite, 
+			TestProvName.SQLiteMs,
 			ProviderName.Access,
 			ProviderName.SapHana)]
 		public void Update10(string context)
@@ -325,8 +421,8 @@ namespace Tests.xUpdate
 		}
 
 		[Test, DataContextSource(
-			ProviderName.SqlCe, ProviderName.SQLite, ProviderName.DB2, ProviderName.Informix,
-			ProviderName.Firebird, ProviderName.OracleNative, ProviderName.OracleManaged, ProviderName.PostgreSQL)]
+			ProviderName.SqlCe, ProviderName.SQLite, TestProvName.SQLiteMs, ProviderName.DB2, ProviderName.Informix,
+			ProviderName.Firebird, TestProvName.Firebird3, ProviderName.OracleNative, ProviderName.OracleManaged, ProviderName.PostgreSQL)]
 		public void Update12(string context)
 		{
 			using (var db = GetDataContext(context))
@@ -341,9 +437,30 @@ namespace Tests.xUpdate
 			}
 		}
 
+#if  !NOASYNC
+
 		[Test, DataContextSource(
-			ProviderName.SqlCe, ProviderName.SQLite, ProviderName.DB2, ProviderName.Informix,
-			ProviderName.Firebird, ProviderName.OracleNative, ProviderName.OracleManaged, ProviderName.PostgreSQL)]
+			ProviderName.SqlCe, ProviderName.SQLite, TestProvName.SQLiteMs, ProviderName.DB2, ProviderName.Informix,
+			ProviderName.Firebird, TestProvName.Firebird3, ProviderName.OracleNative, ProviderName.OracleManaged, ProviderName.PostgreSQL)]
+		public async Task Update12Async(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				await (
+					from p1 in db.Parent
+					join p2 in db.Parent on p1.ParentID equals p2.ParentID
+					where p1.ParentID < 3
+					select new { p1, p2 }
+				)
+				.UpdateAsync(q => q.p1, q => new Parent { ParentID = q.p2.ParentID });
+			}
+		}
+		
+#endif
+
+		[Test, DataContextSource(
+			ProviderName.SqlCe, ProviderName.SQLite, TestProvName.SQLiteMs, ProviderName.DB2, ProviderName.Informix,
+			ProviderName.Firebird, TestProvName.Firebird3, ProviderName.OracleNative, ProviderName.OracleManaged, ProviderName.PostgreSQL)]
 		public void Update13(string context)
 		{
 			using (var db = GetDataContext(context))
@@ -355,6 +472,119 @@ namespace Tests.xUpdate
 					select new { p1, p2 }
 				)
 				.Update(q => q.p2, q => new Parent { ParentID = q.p1.ParentID });
+			}
+		}
+
+		[Test, DataContextSource]
+		public void UpdateComplex1(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				db.Person.Where(_ => _.FirstName.StartsWith("UpdateComplex")).Delete();
+				try
+				{
+
+					var id = Convert.ToInt32(db.InsertWithIdentity(
+						new ComplexPerson2
+						{
+							Name = new FullName
+							{
+								FirstName = "UpdateComplex",
+								LastName  = "Empty"
+							}
+						}));
+
+					var obj = db.GetTable<ComplexPerson2>().First(_ => _.ID == id);
+					obj.Name.LastName = obj.Name.FirstName;
+
+					db.Update(obj);
+
+					obj = db.GetTable<ComplexPerson2>().First(_ => _.ID == id);
+
+					Assert.AreEqual(obj.Name.FirstName, obj.Name.LastName);
+				}
+				finally
+				{
+					db.Person.Where(_ => _.FirstName.StartsWith("UpdateComplex")).Delete();
+				}
+			}
+		}
+
+#if !NOASYNC
+
+		[Test, DataContextSource]
+		public async Task UpdateComplex1Async(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				await db.Person.DeleteAsync(_ => _.FirstName.StartsWith("UpdateComplex"));
+
+				try
+				{
+
+					var id = Convert.ToInt32(await db.InsertWithIdentityAsync(
+						new ComplexPerson2
+						{
+							Name = new FullName
+							{
+								FirstName = "UpdateComplex",
+								LastName  = "Empty"
+							}
+						}));
+
+					var obj = await db.GetTable<ComplexPerson2>().FirstAsync(_ => _.ID == id);
+					obj.Name.LastName = obj.Name.FirstName;
+
+					await db.UpdateAsync(obj);
+
+					obj = await db.GetTable<ComplexPerson2>().FirstAsync(_ => _.ID == id);
+
+					Assert.AreEqual(obj.Name.FirstName, obj.Name.LastName);
+				}
+				finally
+				{
+					await db.Person.Where(_ => _.FirstName.StartsWith("UpdateComplex")).DeleteAsync();
+				}
+			}
+		}
+
+#endif
+
+		[Test, DataContextSource]
+		public void UpdateComplex2(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				db.Person.Where(_ => _.FirstName.StartsWith("UpdateComplex")).Delete();
+				try
+				{
+
+					var id = Convert.ToInt32(db.InsertWithIdentity(
+						new ComplexPerson2()
+						{
+							Name = new FullName
+							{
+								FirstName = "UpdateComplex",
+								LastName  = "Empty"
+							}
+						}));
+
+					var cnt = db.GetTable<ComplexPerson2>()
+						.Where(_ => _.Name.FirstName.StartsWith("UpdateComplex"))
+						.Set(_ => _.Name.LastName, _ => _.Name.FirstName)
+						.Update();
+
+					Assert.AreEqual(1, cnt);
+
+					var obj = db.GetTable<ComplexPerson2>().First(_ => _.ID == id);
+
+					Assert.AreEqual(obj.Name.FirstName, obj.Name.LastName);
+				}
+				finally
+				{
+					db.Person.Where(_ => _.FirstName.StartsWith("UpdateComplex")).Delete();
+				}
+
 			}
 		}
 
@@ -388,6 +618,41 @@ namespace Tests.xUpdate
 				}
 			}
 		}
+
+#if !NOASYNC
+
+		[Test, DataContextSource(ProviderName.Sybase, ProviderName.Informix)]
+		public async Task UpdateAssociation1Async(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				const int childId  = 10000;
+				const int parentId = 20000;
+
+				try
+				{
+					await db.Child. DeleteAsync(x => x.ChildID  == childId);
+					await db.Parent.DeleteAsync(x => x.ParentID == parentId);
+
+					await db.Parent.InsertAsync(() => new Parent { ParentID = parentId, Value1 = parentId });
+					await db.Child. InsertAsync(() => new Child  { ChildID = childId, ParentID = parentId });
+
+					var parents =
+						from child in db.Child
+						where child.ChildID == childId
+						select child.Parent;
+
+					Assert.AreEqual(1, await parents.UpdateAsync(db.Parent, x => new Parent { Value1 = 5 }));
+				}
+				finally
+				{
+					await db.Child. DeleteAsync(x => x.ChildID  == childId);
+					await db.Parent.DeleteAsync(x => x.ParentID == parentId);
+				}
+			}
+		}
+
+#endif
 
 		[Test, DataContextSource(ProviderName.Sybase, ProviderName.Informix)]
 		public void UpdateAssociation2(string context)
@@ -519,15 +784,16 @@ namespace Tests.xUpdate
 		}
 
 		[Test, DataContextSource(false,
-			ProviderName.Access, 
-			ProviderName.DB2, 
-			ProviderName.Firebird, 
-			ProviderName.Informix, 
+			ProviderName.Access,
+			ProviderName.DB2,
+			ProviderName.Firebird,
+			ProviderName.Informix,
 			ProviderName.OracleNative,
-			ProviderName.OracleManaged, 
-			ProviderName.PostgreSQL, 
-			ProviderName.SqlCe, 
-			ProviderName.SQLite, 
+			ProviderName.OracleManaged,
+			ProviderName.PostgreSQL,
+			ProviderName.SqlCe,
+			ProviderName.SQLite,
+			TestProvName.SQLiteMs,
 			ProviderName.SapHana)]
 		public void UpdateAssociation5(string context)
 		{
@@ -610,13 +876,14 @@ namespace Tests.xUpdate
 			ProviderName.Access,
 			ProviderName.DB2,
 			ProviderName.Firebird,
+			TestProvName.Firebird3,
 			ProviderName.Informix,
 			ProviderName.PostgreSQL,
-			ProviderName.SQLite,
+			ProviderName.SQLite, 
+			TestProvName.SQLiteMs,
 			ProviderName.SqlCe,
 			ProviderName.SqlServer2000,
-			ProviderName.SapHana
-			)]
+			ProviderName.SapHana)]
 		public void UpdateTop(string context)
 		{
 			using (var db = GetDataContext(context))
@@ -625,8 +892,11 @@ namespace Tests.xUpdate
 				{
 					db.Parent.Delete(c => c.ParentID >= 1000);
 
-					for (var i = 0; i < 10; i++)
-						db.Insert(new Parent { ParentID = 1000 + i });
+					using (new DisableLogging())
+					{
+						for (var i = 0; i < 10; i++)
+							db.Insert(new Parent { ParentID = 1000 + i });
+					}
 
 					var rowsAffected = db.Parent
 						.Where(p => p.ParentID >= 1000)
@@ -643,20 +913,149 @@ namespace Tests.xUpdate
 			}
 		}
 
-		// TODO: [Test, DataContextSource]
-		public void TestUpdateTake(string context)
+		[Test, DataContextSource(
+			ProviderName.Access,
+			ProviderName.DB2,
+			ProviderName.Firebird,
+			TestProvName.Firebird3,
+			ProviderName.Informix,
+			ProviderName.PostgreSQL,
+			ProviderName.SQLite, 
+			TestProvName.SQLiteMs,
+			ProviderName.SqlCe,
+			ProviderName.SqlServer2000,
+			ProviderName.SapHana,
+			ProviderName.MySql,
+			TestProvName.MySql57,
+			TestProvName.MariaDB,
+			ProviderName.Sybase,
+			ProviderName.OracleManaged)]
+		public void TestUpdateTakeOrdered(string context)
 		{
 			using (var db = GetDataContext(context))
 			{
-				var entities =
-					from x in db.Parent
-					where x.ParentID > 1000
-					orderby x.ParentID descending
-					select x;
+				try
+				{
+					using (new DisableLogging())
+					{
+						db.Parent.Delete(c => c.ParentID >= 1000);
+						for (var i = 0; i < 10; i++)
+							db.Insert(new Parent { ParentID = 1000 + i });
+					}
 
-				entities
-					.Take(10)
-					.Update(x => new Parent { Value1 = 1 });
+					var entities =
+						from x in db.Parent
+						where x.ParentID > 1000
+						orderby x.ParentID descending
+						select x;
+
+					var rowsAffected = entities
+						.Take(5)
+						.Update(x => new Parent { Value1 = 1 });
+
+					Assert.That(rowsAffected, Is.EqualTo(5));
+				}
+				finally
+				{
+					db.Parent.Delete(c => c.ParentID >= 1000);
+				}
+			}
+		}
+
+		[Test, DataContextSource(
+			ProviderName.Access,
+			ProviderName.DB2,
+			ProviderName.Firebird,
+			TestProvName.Firebird3,
+			ProviderName.Informix,
+			ProviderName.PostgreSQL,
+			ProviderName.SQLite, 
+			TestProvName.SQLiteMs,
+			ProviderName.SqlCe,
+			ProviderName.SqlServer2000,
+			ProviderName.SapHana,
+			ProviderName.MySql,
+			TestProvName.MySql57,
+			TestProvName.MariaDB,
+			ProviderName.Sybase,
+			ProviderName.OracleManaged
+		 )]
+		public void TestUpdateSkipTake(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				try
+				{
+					using (new DisableLogging())
+					{
+						db.Parent.Delete(c => c.ParentID >= 1000);
+						for (var i = 0; i < 10; i++)
+							db.Insert(new Parent {ParentID = 1000 + i});
+					}
+
+					var entities =
+						from x in db.Parent
+						where x.ParentID > 1000
+						orderby x.ParentID descending
+						select x;
+
+					var rowsAffected = entities
+						.Skip(1)
+						.Take(5)
+						.Update(x => new Parent { Value1 = 1 });
+
+					Assert.That(rowsAffected, Is.EqualTo(5));
+
+					Assert.False(db.Parent.Where(p => p.ParentID == 1000 + 9).Single().Value1 == 1);
+				}
+				finally
+				{
+					db.Parent.Delete(c => c.ParentID >= 1000);
+				}
+			}
+		}
+
+		[Test, DataContextSource(
+			ProviderName.Access,
+			ProviderName.DB2,
+			ProviderName.Firebird,
+			TestProvName.Firebird3,
+			ProviderName.Informix,
+			ProviderName.PostgreSQL,
+			ProviderName.SQLite, 
+			TestProvName.SQLiteMs,
+			ProviderName.SqlCe,
+			ProviderName.SqlServer2000,
+			ProviderName.SapHana
+		 )]
+		public void TestUpdateTakeNotOrdered(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				try
+				{
+					using (new DisableLogging())
+					{
+						db.Parent.Delete(c => c.ParentID >= 1000);
+						for (var i = 0; i < 10; i++)
+							db.Insert(new Parent {ParentID = 1000 + i});
+					}
+
+					var entities =
+						from x in db.Parent
+						where x.ParentID > 1000
+						select x;
+
+					var rowsAffected = entities
+						.Take(5)
+						.Update(x => new Parent { Value1 = 1 });
+
+					Assert.That(rowsAffected, Is.EqualTo(5));
+				}
+				finally
+				{
+					db.Parent.Delete(c => c.ParentID >= 1000);
+				}
 			}
 		}
 
@@ -665,20 +1064,28 @@ namespace Tests.xUpdate
 		{
 			using (var db = GetDataContext(context))
 			{
+				db.Parent.Delete(_ => _.ParentID > 1000);
+
+				var res =
 				(
 					from p in db.Parent
 					join c in db.Child on p.ParentID equals c.ParentID
-					where p.ParentID < 10000
+					where p.ParentID == 1
 					select p
 				)
-				.Set(p => p.ParentID, p => db.Child.SingleOrDefault(c => c.ChildID == 11).ParentID)
+				.Set(p => p.ParentID, p => db.Child.SingleOrDefault(c => c.ChildID == 11).ParentID + 1000)
 				.Update();
+
+				Assert.AreEqual(1, res);
+
+				res = db.Parent.Where(_ => _.ParentID == 1001).Set(_ => _.ParentID, 1).Update();
+				Assert.AreEqual(1, res);
 			}
 		}
 
 		[Test, DataContextSource(
-			ProviderName.SQLite, ProviderName.Access, ProviderName.Informix, ProviderName.Firebird, ProviderName.PostgreSQL,
-			ProviderName.MySql, TestProvName.MariaDB, ProviderName.Sybase)]
+			ProviderName.SQLite, TestProvName.SQLiteMs, ProviderName.Access, ProviderName.Informix, ProviderName.Firebird, ProviderName.PostgreSQL,
+			ProviderName.MySql, TestProvName.MariaDB, TestProvName.MySql57, ProviderName.Sybase, TestProvName.Firebird3)]
 		public void UpdateIssue319Regression(string context)
 		{
 			using (var db = GetDataContext(context))
@@ -716,7 +1123,7 @@ namespace Tests.xUpdate
 			}
 		}
 
-		[Test, DataContextSource(ProviderName.DB2, ProviderName.Informix, ProviderName.Firebird, ProviderName.Sybase)]
+		[Test, DataContextSource(ProviderName.DB2, ProviderName.Informix, ProviderName.Firebird, TestProvName.Firebird3, ProviderName.Sybase)]
 		public void UpdateIssue321Regression(string context)
 		{
 			using (var db = GetDataContext(context))

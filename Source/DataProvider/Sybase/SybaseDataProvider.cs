@@ -30,9 +30,12 @@ namespace LinqToDB.DataProvider.Sybase
 			//SqlProviderFlags.IsCountSubQuerySupported  = false;
 			SqlProviderFlags.CanCombineParameters      = false;
 			SqlProviderFlags.IsSybaseBuggyGroupBy      = true;
+			SqlProviderFlags.IsCrossJoinSupported      = false;
 
-			SetCharField("char",  (r,i) => r.GetString(i).TrimEnd());
-			SetCharField("nchar", (r,i) => r.GetString(i).TrimEnd());
+			SetCharField("char",  (r,i) => r.GetString(i).TrimEnd(' '));
+			SetCharField("nchar", (r,i) => r.GetString(i).TrimEnd(' '));
+			SetCharFieldToType<char>("char",  (r, i) => DataTools.GetChar(r, i));
+			SetCharFieldToType<char>("nchar", (r, i) => DataTools.GetChar(r, i));
 
 			SetProviderField<IDataReader,TimeSpan,DateTime>((r,i) => r.GetDateTime(i) - new DateTime(1900, 1, 1));
 			SetProviderField<IDataReader,DateTime,DateTime>((r,i) => GetDateTime(r, i));
@@ -106,10 +109,12 @@ namespace LinqToDB.DataProvider.Sybase
 			return _sqlOptimizer;
 		}
 
+#if !NETSTANDARD
 		public override ISchemaProvider GetSchemaProvider()
 		{
 			return new SybaseSchemaProvider();
 		}
+#endif
 
 		public override void SetParameter(IDbDataParameter parameter, string name, DataType dataType, object value)
 		{
@@ -179,7 +184,7 @@ namespace LinqToDB.DataProvider.Sybase
 			}
 		}
 
-		#endregion
+#endregion
 
 		#region BulkCopy
 
@@ -193,6 +198,15 @@ namespace LinqToDB.DataProvider.Sybase
 				source);
 		}
 
+		#endregion
+
+		#region Merge
+		protected override BasicMergeBuilder<TTarget, TSource> GetMergeBuilder<TTarget, TSource>(
+			DataConnection connection,
+			IMergeable<TTarget,TSource> merge)
+		{
+			return new SybaseMergeBuilder<TTarget, TSource>(connection, merge);
+		}
 		#endregion
 	}
 }

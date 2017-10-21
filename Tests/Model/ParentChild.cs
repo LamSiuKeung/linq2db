@@ -1,7 +1,11 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Collections.Immutable;
+using System.Linq;
+using System.Linq.Expressions;
 using System.Reflection;
+#if !NOIMMUTABLE
+using System.Collections.Immutable;
+#endif
 
 using LinqToDB;
 using LinqToDB.Common;
@@ -39,7 +43,11 @@ namespace Tests.Model
 		}
 
 		[Association(ThisKey = "ParentID", OtherKey = "ParentID")]
+#if !NOIMMUTABLE
 		public ImmutableList<Child> Children3;
+#else
+		public List<Child> Children3;
+#endif
 
 		public override bool Equals(object obj)
 		{
@@ -66,6 +74,44 @@ namespace Tests.Model
 
 		[Association(ThisKey = "ParentID", OtherKey = "ID")]
 		public LinqDataTypes Types;
+
+		[Association(ThisKey = "ParentID", OtherKey = "ParentID", ExpressionPredicate = "ChildrenPredicate", CanBeNull = true)]
+		public List<Child> ChildrenX { get; set; }
+
+		static Expression<Func<Parent, Child, bool>> ChildrenPredicate =>
+			(t, m) => Math.Abs(m.ChildID) > 3;
+
+		[Association(ThisKey = "ParentID", OtherKey = "ParentID", ExpressionPredicate = "GrandChildrenPredicate" , CanBeNull = true)]
+		public List<GrandChild> GrandChildrenX { get; set; }
+
+		static Expression<Func<Parent,GrandChild, bool>> GrandChildrenPredicate =>
+			(t, m) => m.ChildID > 22;
+
+		[ExpressionMethod("GrandChildren2Impl")]
+		public IEnumerable<GrandChild> GrandChildren2 { get; set; }
+
+		static Expression<Func<Parent,ITestDataContext,IEnumerable<GrandChild>>> GrandChildren2Impl()
+		{
+			return (p,db) =>
+//				from gc in db.GrandChild
+//				where p.ParentID == gc.ParentID
+//				select gc;
+				p.Children.SelectMany(c => c.GrandChildren);
+		}
+
+		[ExpressionMethod("GrandChildrenByIDImpl")]
+		public IEnumerable<GrandChild> GrandChildrenByID(int id)
+		{
+			throw new NotImplementedException();
+		}
+
+		static Expression<Func<Parent,int,ITestDataContext,IEnumerable<GrandChild>>> GrandChildrenByIDImpl()
+		{
+			return (p,id,db) =>
+				from gc in db.GrandChild
+				where p.ParentID == gc.ParentID && gc.ChildID == id
+				select gc;
+		}
 	}
 
 	public class Child
@@ -526,14 +572,18 @@ namespace Tests.Model
 		[Sql.TableFunction(Name="GetParentByID")]
 		public ITable<Parent> GetParentByID(int? id)
 		{
-			return _ctx.GetTable<Parent>(this, (MethodInfo)(MethodBase.GetCurrentMethod()), id);
+			var methodInfo = typeof(Functions).GetMethod("GetParentByID", new [] {typeof(int?)});
+
+			return _ctx.GetTable<Parent>(this, methodInfo, id);
 		}
 
 		[Sql.TableExpression("{0} {1} WITH (TABLOCK)")]
 		public ITable<T> WithTabLock<T>()
-			where T : class 
+			where T : class
 		{
-			return _ctx.GetTable<T>(this, ((MethodInfo)(MethodBase.GetCurrentMethod())).MakeGenericMethod(typeof(T)));
+			var methodInfo = typeof(Functions).GetMethod("WithTabLock").MakeGenericMethod(typeof(T));
+
+			return _ctx.GetTable<T>(this, methodInfo);
 		}
 
 		[Sql.TableExpression("{0} {1} WITH (TABLOCK)")]

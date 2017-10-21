@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
-
+using System.Threading.Tasks;
 using LinqToDB;
 using LinqToDB.Linq;
 
@@ -158,7 +158,7 @@ namespace Tests.Linq
 				select p;
 		}
 
-		[Test, DataContextSource]
+		[Test, DataContextSource(TestProvName.SQLiteMs)]
 		public void MethodExpression8(string context)
 		{
 			using (var db = GetDataContext(context))
@@ -177,10 +177,10 @@ namespace Tests.Linq
 					select ch);
 		}
 
-		[Test]
-		public void MethodExpression9()
+		[Test, IncludeDataContextSource(ProviderName.SQLite)]
+		public void MethodExpression9(string context)
 		{
-			using (var db = new TestDataConnection())
+			using (var db = new TestDataConnection(context))
 				AreEqual(
 					from ch in Child
 					from p in
@@ -196,10 +196,10 @@ namespace Tests.Linq
 					select ch);
 		}
 
-		[Test]
-		public void MethodExpression10()
+		[Test, IncludeDataContextSource(ProviderName.SQLite)]
+		public void MethodExpression10(string context)
 		{
-			using (var db = new TestDataConnection())
+			using (var db = new TestDataConnection(context))
 				AreEqual(
 					from ch in Child
 					from p in
@@ -227,6 +227,7 @@ namespace Tests.Linq
 			return obj => obj != null;
 		}
 
+#if !MONO
 		[Test]
 		public void TestGenerics1()
 		{
@@ -240,6 +241,7 @@ namespace Tests.Linq
 				q.ToList();
 			}
 		}
+#endif
 
 		[ExpressionMethod("GetBoolExpression2_{0}")]
 		static bool GetBool2<T>(T obj)
@@ -316,6 +318,28 @@ namespace Tests.Linq
 					from p in db.Parent
 					select GrandChildren(p).Count());
 		}
+
+#if !NOASYNC
+
+		[Test, DataContextSource]
+		public async Task AssociationMethodExpressionAsync(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				var list = await db.Parent.ToListAsync();
+
+				AreEqual(
+					from p in Parent
+					select p.Children.SelectMany(gc => gc.GrandChildren).Count()
+					,
+					await (
+						from p in db.Parent
+						select GrandChildren(p).Count()
+					).ToListAsync());
+			}
+		}
+
+#endif
 
 		[Test]
 		public void ParameterlessExpression()
@@ -406,6 +430,19 @@ namespace Tests.Linq
 			}
 		}
 
+		[Test, DataContextSource]
+		public void ToLowerInvariantTest(string context)
+		{
+			Expressions.MapMember((string s) => s.ToLowerInvariant(), (string s) => s.ToLower());
+
+			using (var db = GetDataContext(context))
+			{
+				AreEqual(
+					   Doctor.Where(p => p.Taxonomy.ToLowerInvariant() == "psychiatry").Select(p => p.Taxonomy.ToLower()),
+					db.Doctor.Where(p => p.Taxonomy.ToLowerInvariant() == "psychiatry").Select(p => p.Taxonomy.ToLower()));
+			}
+		}
+
 		/*
 		[Test, DataContextSource]
 		public void LeftJoinTest3(string context)
@@ -420,6 +457,28 @@ namespace Tests.Linq
 			}
 		}
 		*/
+
+		[Test, DataContextSource]
+		public void AssociationTest(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				AreEqual(
+					   Parent.SelectMany(p => p.Children.SelectMany(c => c.GrandChildren)),
+					db.Parent.SelectMany(p => p.GrandChildren2));
+			}
+		}
+
+		[Test, DataContextSource]
+		public void AssociationTest2(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				AreEqual(
+					   Parent.SelectMany(p => p.Children.Where(c => c.ChildID == 22).SelectMany(c => c.GrandChildren)),
+					db.Parent.SelectMany(p => p.GrandChildrenByID(22)));
+			}
+		}
 	}
 
 	static class ExpressionTestExtensions

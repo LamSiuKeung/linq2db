@@ -1,4 +1,4 @@
-DROP Procedure Person_SelectByKey
+﻿DROP Procedure Person_SelectByKey
 GO
 DROP Procedure Person_SelectAll
 GO
@@ -24,6 +24,29 @@ GO
 DROP TABLE Patient
 GO
 DROP TABLE Person
+GO
+
+DROP TABLE InheritanceParent
+GO
+
+CREATE TABLE InheritanceParent
+(
+	InheritanceParentId Int      NOT NULL CONSTRAINT PK_InheritanceParent PRIMARY KEY,
+	TypeDiscriminator   Int          NULL,
+	Name                Text(50)     NULL
+)
+GO
+
+DROP TABLE InheritanceChild
+GO
+
+CREATE TABLE InheritanceChild
+(
+	InheritanceChildId  Int      NOT NULL CONSTRAINT PK_InheritanceChild PRIMARY KEY,
+	InheritanceParentId Int      NOT NULL,
+	TypeDiscriminator   Int          NULL,
+	Name                Text(50)     NULL
+)
 GO
 
 CREATE TABLE Person
@@ -68,6 +91,11 @@ INSERT INTO Person (FirstName, LastName, Gender) VALUES ("John",   "Pupkin",    
 GO
 INSERT INTO Person (FirstName, LastName, Gender) VALUES ("Tester", "Testerson", "M")
 GO
+INSERT INTO Person (FirstName, LastName, Gender) VALUES ("Jane",   "Doe",       "F")
+GO
+INSERT INTO Person (FirstName, LastName, Gender) VALUES ("Jürgen", "König",     "M")
+GO
+
 INSERT INTO Doctor (PersonID, Taxonomy)   VALUES (1, "Psychiatry")
 GO
 INSERT INTO Patient (PersonID, Diagnosis) VALUES (2, "Hallucination with Paranoid Bugs' Delirium of Persecution")
@@ -204,7 +232,8 @@ CREATE TABLE LinqDataTypes
 	BinaryValue    OleObject NULL,
 	SmallIntValue  smallint,
 	IntValue       int       NULL,
-	BigIntValue    long      NULL
+	BigIntValue    long      NULL,
+	StringValue    Text(50)  NULL
 )
 GO
 
@@ -239,6 +268,7 @@ CREATE TABLE AllTypes
 	datetimeDataType         datetime         NULL,
 
 	charDataType             char(1)          NULL,
+	char20DataType           char(20)         NULL,
 	varcharDataType          varchar(20)      NULL,
 	textDataType             text             NULL,
 	ncharDataType            nchar(20)        NULL,
@@ -257,4 +287,62 @@ GO
 INSERT INTO AllTypes (binaryDataType)
 VALUES (NULL)
 
+GO
+
+DROP TABLE TestMerge1
+GO
+DROP TABLE TestMerge2
+GO
+
+CREATE TABLE TestMerge1
+(
+	Id       Int      NOT NULL CONSTRAINT PK_TestMerge1 PRIMARY KEY,
+	Field1   Int          NULL,
+	Field2   Int          NULL,
+	Field3   Int          NULL,
+	Field4   Int          NULL,
+	Field5   Int          NULL,
+
+	FieldBoolean    BIT               NULL,
+	FieldString     VARCHAR(20)       NULL,
+	FieldNString    NVARCHAR(20)      NULL,
+	FieldChar       CHAR(1)           NULL,
+	FieldNChar      NCHAR(1)          NULL,
+	FieldFloat      REAL              NULL,
+	FieldDouble     FLOAT             NULL,
+	FieldDateTime   DATETIME          NULL,
+	FieldBinary     VARBINARY(20)     NULL,
+	FieldGuid       UNIQUEIDENTIFIER  NULL,
+	FieldDecimal    DECIMAL(24, 10)   NULL,
+	FieldDate       DATE              NULL,
+	FieldTime       TIME              NULL,
+	FieldEnumString VARCHAR(20)       NULL,
+	FieldEnumNumber INT               NULL
+)
+GO
+CREATE TABLE TestMerge2
+(
+	Id       Int      NOT NULL CONSTRAINT PK_TestMerge2 PRIMARY KEY,
+	Field1   Int          NULL,
+	Field2   Int          NULL,
+	Field3   Int          NULL,
+	Field4   Int          NULL,
+	Field5   Int          NULL,
+
+	FieldBoolean    BIT               NULL,
+	FieldString     VARCHAR(20)       NULL,
+	FieldNString    NVARCHAR(20)      NULL,
+	FieldChar       CHAR(1)           NULL,
+	FieldNChar      NCHAR(1)          NULL,
+	FieldFloat      REAL              NULL,
+	FieldDouble     FLOAT             NULL,
+	FieldDateTime   DATETIME          NULL,
+	FieldBinary     VARBINARY(20)     NULL,
+	FieldGuid       UNIQUEIDENTIFIER  NULL,
+	FieldDecimal    DECIMAL(24, 10)   NULL,
+	FieldDate       DATE              NULL,
+	FieldTime       TIME              NULL,
+	FieldEnumString VARCHAR(20)       NULL,
+	FieldEnumNumber INT               NULL
+)
 GO

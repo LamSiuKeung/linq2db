@@ -1,16 +1,24 @@
 using System;
 using System.Configuration;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace LinqToDB.Configuration
 {
 	using DataProvider;
 
-	public class DataProviderElement : ElementBase
+	/// <summary>
+	/// Data provider configuration element.
+	/// </summary>
+	public sealed class DataProviderElement : ElementBase, IDataProviderSettings
 	{
 		static readonly ConfigurationProperty _propTypeName = new ConfigurationProperty("type",    typeof(string), string.Empty, ConfigurationPropertyOptions.IsRequired);
 		static readonly ConfigurationProperty _propName     = new ConfigurationProperty("name",    typeof(string), string.Empty, ConfigurationPropertyOptions.None);
 		static readonly ConfigurationProperty _propDefault  = new ConfigurationProperty("default", typeof(bool),   false,        ConfigurationPropertyOptions.None);
 
+		/// <summary>
+		/// Creates data provider configuration element.
+		/// </summary>
 		public DataProviderElement()
 		{
 			Properties.Add(_propTypeName);
@@ -19,7 +27,7 @@ namespace LinqToDB.Configuration
 		}
 
 		/// <summary>
-		/// Gets or sets an assembly qualified type name of this data provider.
+		/// Gets an assembly qualified type name of this data provider.
 		/// </summary>
 		public string TypeName
 		{
@@ -27,7 +35,7 @@ namespace LinqToDB.Configuration
 		}
 
 		/// <summary>
-		/// Gets or sets a name of this data provider.
+		/// Gets a name of this data provider.
 		/// If not set, <see cref="DataProviderBase.Name"/> is used.
 		/// </summary>
 		public string Name
@@ -41,6 +49,11 @@ namespace LinqToDB.Configuration
 		public bool Default
 		{
 			get { return (bool)base[_propDefault]; }
+		}
+
+		IEnumerable<NamedValue> IDataProviderSettings.Attributes
+		{
+			get { return Attributes.AllKeys.Select(e => new NamedValue() {Name = e, Value = Attributes[e]}); }
 		}
 	}
 }

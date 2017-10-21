@@ -1,4 +1,5 @@
-﻿using System;
+﻿using LinqToDB.Extensions;
+using System;
 using System.Collections.Generic;
 using System.Data;
 using System.Globalization;
@@ -6,10 +7,15 @@ using System.Linq.Expressions;
 using System.Security;
 using System.Threading;
 
+#if !NOASYNC
+using System.Threading.Tasks;
+#endif
+
 namespace LinqToDB.DataProvider.Informix
 {
 	using Common;
 	using Data;
+	using Extensions;
 	using Mapping;
 	using SqlProvider;
 
@@ -27,16 +33,24 @@ namespace LinqToDB.DataProvider.Informix
 			SqlProviderFlags.IsSubQueryTakeSupported      = false;
 			SqlProviderFlags.IsInsertOrUpdateSupported    = false;
 			SqlProviderFlags.IsGroupByExpressionSupported = false;
+			SqlProviderFlags.IsCrossJoinSupported         = false;
 
 
-			SetCharField("CHAR",  (r,i) => r.GetString(i).TrimEnd());
-			SetCharField("NCHAR", (r,i) => r.GetString(i).TrimEnd());
+
+			SetCharField("CHAR",  (r,i) => r.GetString(i).TrimEnd(' '));
+			SetCharField("NCHAR", (r,i) => r.GetString(i).TrimEnd(' '));
+			SetCharFieldToType<char>("CHAR",  (r, i) => DataTools.GetChar(r, i));
+			SetCharFieldToType<char>("NCHAR", (r, i) => DataTools.GetChar(r, i));
 
 			if (!Configuration.AvoidSpecificDataProviderAPI)
 			{
 				SetProviderField<IDataReader,float,  float  >((r,i) => GetFloat  (r, i));
 				SetProviderField<IDataReader,double, double >((r,i) => GetDouble (r, i));
 				SetProviderField<IDataReader,decimal,decimal>((r,i) => GetDecimal(r, i));
+
+				SetField<IDataReader, float  >((r, i) => GetFloat  (r, i));
+				SetField<IDataReader, double >((r, i) => GetDouble (r, i));
+				SetField<IDataReader, decimal>((r, i) => GetDecimal(r, i));
 			}
 
 			_sqlOptimizer = new InformixSqlOptimizer(SqlProviderFlags);
@@ -44,47 +58,20 @@ namespace LinqToDB.DataProvider.Informix
 
 		static float GetFloat(IDataReader dr, int idx)
 		{
-			var current = Thread.CurrentThread.CurrentCulture;
-
-			if (Thread.CurrentThread.CurrentCulture != CultureInfo.InvariantCulture)
-				Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-
-			var value = dr.GetFloat(idx);
-
-			if (current != CultureInfo.InvariantCulture)
-				Thread.CurrentThread.CurrentCulture = current;
-
-			return value;
+			using (new InformixCultureFixRegion())
+				return dr.GetFloat(idx);
 		}
 
 		static double GetDouble(IDataReader dr, int idx)
 		{
-			var current = Thread.CurrentThread.CurrentCulture;
-
-			if (Thread.CurrentThread.CurrentCulture != CultureInfo.InvariantCulture)
-				Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-
-			var value = dr.GetDouble(idx);
-
-			if (current != CultureInfo.InvariantCulture)
-				Thread.CurrentThread.CurrentCulture = current;
-
-			return value;
+			using (new InformixCultureFixRegion())
+				return dr.GetDouble(idx);
 		}
 
 		static decimal GetDecimal(IDataReader dr, int idx)
 		{
-			var current = Thread.CurrentThread.CurrentCulture;
-
-			if (Thread.CurrentThread.CurrentCulture != CultureInfo.InvariantCulture)
-				Thread.CurrentThread.CurrentCulture = CultureInfo.InvariantCulture;
-
-			var value = dr.GetDecimal(idx);
-
-			if (current != CultureInfo.InvariantCulture)
-				Thread.CurrentThread.CurrentCulture = current;
-
-			return value;
+			using (new InformixCultureFixRegion())
+				return dr.GetDecimal(idx);
 		}
 
 		Type _ifxBlob;
@@ -93,13 +80,18 @@ namespace LinqToDB.DataProvider.Informix
 		Type _ifxDateTime;
 		Type _ifxTimeSpan;
 
+		public override IDisposable ExecuteScope()
+		{
+			return new InformixCultureFixRegion();
+		}
+
 		protected override void OnConnectionTypeCreated(Type connectionType)
 		{
-			_ifxBlob     = connectionType.Assembly.GetType("IBM.Data.Informix.IfxBlob",     true);
-			_ifxClob     = connectionType.Assembly.GetType("IBM.Data.Informix.IfxClob",     true);
-			_ifxDecimal  = connectionType.Assembly.GetType("IBM.Data.Informix.IfxDecimal",  true);
-			_ifxDateTime = connectionType.Assembly.GetType("IBM.Data.Informix.IfxDateTime", true);
-			_ifxTimeSpan = connectionType.Assembly.GetType("IBM.Data.Informix.IfxTimeSpan", true);
+			_ifxBlob     = connectionType.AssemblyEx().GetType("IBM.Data.Informix.IfxBlob",     true);
+			_ifxClob     = connectionType.AssemblyEx().GetType("IBM.Data.Informix.IfxClob",     true);
+			_ifxDecimal  = connectionType.AssemblyEx().GetType("IBM.Data.Informix.IfxDecimal",  true);
+			_ifxDateTime = connectionType.AssemblyEx().GetType("IBM.Data.Informix.IfxDateTime", true);
+			_ifxTimeSpan = connectionType.AssemblyEx().GetType("IBM.Data.Informix.IfxTimeSpan", true);
 
 			if (!Configuration.AvoidSpecificDataProviderAPI)
 			{
@@ -114,7 +106,7 @@ namespace LinqToDB.DataProvider.Informix
 
 			_newIfxTimeSpan = Expression.Lambda<Func<TimeSpan,object>>(
 				Expression.Convert(
-					Expression.New(_ifxTimeSpan.GetConstructor(new[] { typeof(TimeSpan) }), p),
+					Expression.New(_ifxTimeSpan.GetConstructorEx(new[] { typeof(TimeSpan) }), p),
 					typeof(object)),
 				p).Compile();
 
@@ -157,10 +149,12 @@ namespace LinqToDB.DataProvider.Informix
 			return _sqlOptimizer;
 		}
 
+#if !NETSTANDARD
 		public override SchemaProvider.ISchemaProvider GetSchemaProvider()
 		{
 			return new InformixSchemaProvider();
 		}
+#endif
 
 		Func<TimeSpan,object> _newIfxTimeSpan;
 
@@ -171,8 +165,9 @@ namespace LinqToDB.DataProvider.Informix
 				if (dataType != DataType.Int64)
 					value = _newIfxTimeSpan((TimeSpan)value);
 			}
-			else if (value is Guid)
+			else if (value is Guid || value == null && dataType == DataType.Guid)
 			{
+				if (value != null)
 				value    = value.ToString();
 				dataType = DataType.Char;
 			}
@@ -203,7 +198,7 @@ namespace LinqToDB.DataProvider.Informix
 			base.SetParameterType(parameter, dataType);
 		}
 
-		#region BulkCopy
+#region BulkCopy
 
 		public override BulkCopyRowsCopied BulkCopy<T>(
 			[JetBrains.Annotations.NotNull] DataConnection dataConnection, BulkCopyOptions options, IEnumerable<T> source)
@@ -215,9 +210,9 @@ namespace LinqToDB.DataProvider.Informix
 				source);
 		}
 
-		#endregion
+#endregion
 
-		#region Merge
+#region Merge
 
 		public override int Merge<T>(DataConnection dataConnection, Expression<Func<T,bool>> deletePredicate, bool delete, IEnumerable<T> source,
 			string tableName, string databaseName, string schemaName)
@@ -228,6 +223,26 @@ namespace LinqToDB.DataProvider.Informix
 			return new InformixMerge().Merge(dataConnection, deletePredicate, delete, source, tableName, databaseName, schemaName);
 		}
 
-		#endregion
+#if !NOASYNC
+
+		public override Task<int> MergeAsync<T>(DataConnection dataConnection, Expression<Func<T,bool>> deletePredicate, bool delete, IEnumerable<T> source,
+			string tableName, string databaseName, string schemaName, CancellationToken token)
+		{
+			if (delete)
+				throw new LinqToDBException("Informix MERGE statement does not support DELETE by source.");
+
+			return new InformixMerge().MergeAsync(dataConnection, deletePredicate, delete, source, tableName, databaseName, schemaName, token);
+		}
+
+#endif
+
+		protected override BasicMergeBuilder<TTarget, TSource> GetMergeBuilder<TTarget, TSource>(
+			DataConnection connection,
+			IMergeable<TTarget, TSource> merge)
+		{
+			return new InformixMergeBuilder<TTarget, TSource>(connection, merge);
+		}
+
+#endregion
 	}
 }

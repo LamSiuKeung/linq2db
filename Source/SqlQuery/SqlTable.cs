@@ -124,9 +124,7 @@ namespace LinqToDB.SqlQuery
 			if (identityField != null)
 			{
 				var cd = ed[identityField.Name];
-
-				SequenceAttributes = mappingSchema.GetAttributes<SequenceNameAttribute>(
-					cd.MemberAccessor.MemberInfo, a => a.Configuration);
+				SequenceAttributes = cd.SequenceName == null ? null : new[] { cd.SequenceName };
 			}
 		}
 
@@ -348,7 +346,7 @@ namespace LinqToDB.SqlQuery
 
 		int ISqlExpression.Precedence
 		{
-			get { return Precedence.Unknown; }
+			get { return Precedence.Primary; }
 		}
 
 		Type ISqlExpression.SystemType

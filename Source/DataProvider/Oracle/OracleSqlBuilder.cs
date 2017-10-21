@@ -7,6 +7,7 @@ namespace LinqToDB.DataProvider.Oracle
 	using Common;
 	using SqlQuery;
 	using SqlProvider;
+	using System.Text;
 
 	class OracleSqlBuilder : BasicSqlBuilder
 	{
@@ -51,6 +52,33 @@ namespace LinqToDB.DataProvider.Oracle
 			}
 
 			return base.GetIdentityExpression(table);
+		}
+
+		private static void ConvertEmptyStringToNullIfNeeded(ISqlExpression expr)
+		{
+			var sqlParameter = expr as SqlParameter;
+			var sqlValue     = expr as SqlValue;
+
+			if (sqlParameter != null && sqlParameter.Value is string && sqlParameter.Value.ToString() == "")
+				sqlParameter.Value = null;
+
+			if (sqlValue != null && sqlValue.Value is string && sqlValue.Value.ToString() == "")
+				sqlValue.Value = null;
+		}
+
+		protected override void BuildPredicate(ISqlPredicate predicate)
+		{
+			if (predicate.ElementType == QueryElementType.ExprExprPredicate)
+			{
+				var expr = (SelectQuery.Predicate.ExprExpr)predicate;
+				if (expr.Operator == SelectQuery.Predicate.Operator.Equal ||
+					expr.Operator == SelectQuery.Predicate.Operator.NotEqual)
+				{
+					ConvertEmptyStringToNullIfNeeded(expr.Expr1);
+					ConvertEmptyStringToNullIfNeeded(expr.Expr2);
+				}
+			}
+			base.BuildPredicate(predicate);
 		}
 
 		protected override bool BuildWhere()
@@ -165,24 +193,36 @@ namespace LinqToDB.DataProvider.Oracle
 			base.BuildFunction(func);
 		}
 
-		protected override void BuildDataType(SqlDataType type, bool createDbType = false)
+		protected override void BuildDataType(SqlDataType type, bool createDbType)
 		{
 			switch (type.DataType)
 			{
-				case DataType.DateTime   : StringBuilder.Append("timestamp");    break;
-				case DataType.DateTime2  : StringBuilder.Append("timestamp");    break;
-				case DataType.UInt32     :
-				case DataType.Int64      : StringBuilder.Append("Number(19)");   break;
-				case DataType.SByte      :
-				case DataType.Byte       : StringBuilder.Append("Number(3)");    break;
-				case DataType.Money      : StringBuilder.Append("Number(19,4)"); break;
-				case DataType.SmallMoney : StringBuilder.Append("Number(10,4)"); break;
-				case DataType.NVarChar   :
+				case DataType.DateTime       : StringBuilder.Append("timestamp");                 break;
+				case DataType.DateTime2      : StringBuilder.Append("timestamp");                 break;
+				case DataType.DateTimeOffset : StringBuilder.Append("timestamp with time zone");  break;
+				case DataType.UInt32         :
+				case DataType.Int64          : StringBuilder.Append("Number(19)");                break;
+				case DataType.SByte          :
+				case DataType.Byte           : StringBuilder.Append("Number(3)");                 break;
+				case DataType.Money          : StringBuilder.Append("Number(19,4)");              break;
+				case DataType.SmallMoney     : StringBuilder.Append("Number(10,4)");              break;
+				case DataType.NVarChar       :
 					StringBuilder.Append("VarChar2");
 					if (type.Length > 0)
 						StringBuilder.Append('(').Append(type.Length).Append(')');
 					break;
-				default                   : base.BuildDataType(type);            break;
+				case DataType.Boolean        : StringBuilder.Append("Char(1)");                   break;
+				case DataType.NText          : StringBuilder.Append("NClob");                     break;
+				case DataType.Text           : StringBuilder.Append("Clob");                      break;
+				case DataType.Guid           : StringBuilder.Append("Raw(16)");                   break;
+				case DataType.Binary         :
+				case DataType.VarBinary      :
+					if (type.Length == null || type.Length == 0)
+						StringBuilder.Append("BLOB");
+					else
+						StringBuilder.Append("Raw(").Append(type.Length).Append(")");
+					break;
+				default: base.BuildDataType(type, createDbType);                                  break;
 			}
 		}
 
@@ -228,6 +268,11 @@ namespace LinqToDB.DataProvider.Oracle
 			BuildInsertOrUpdateQueryAsMerge("FROM SYS.DUAL");
 		}
 
+		public override string GetReserveSequenceValuesSql(int count, string sequenceName)
+		{
+			return "SELECT " + sequenceName + ".nextval ID from DUAL connect by level <= " + count;
+		}
+
 		protected override void BuildEmptyInsert()
 		{
 			StringBuilder.Append("VALUES ");
@@ -261,8 +306,14 @@ namespace LinqToDB.DataProvider.Oracle
 			}
 			else
 			{
+			var schemaPrefix = string.IsNullOrWhiteSpace(SelectQuery.CreateTable.Table.Owner)
+				? string.Empty
+				: SelectQuery.CreateTable.Table.Owner + ".";
+
 				StringBuilder
-					.Append("DROP TRIGGER TIDENTITY_")
+					.Append("DROP TRIGGER ")
+					.Append(schemaPrefix)
+					.Append("TIDENTITY_")
 					.Append(SelectQuery.CreateTable.Table.PhysicalName)
 					.AppendLine();
 			}
@@ -270,12 +321,18 @@ namespace LinqToDB.DataProvider.Oracle
 
 		protected override void BuildCommand(int commandNumber)
 		{
+			var schemaPrefix = string.IsNullOrWhiteSpace(SelectQuery.CreateTable.Table.Owner)
+				? string.Empty
+				: SelectQuery.CreateTable.Table.Owner + ".";
+
 			if (SelectQuery.CreateTable.IsDrop)
 			{
 				if (commandNumber == 1)
 				{
 					StringBuilder
-						.Append("DROP SEQUENCE SIDENTITY_")
+						.Append("DROP SEQUENCE ")
+						.Append(schemaPrefix)
+						.Append("SIDENTITY_")
 						.Append(SelectQuery.CreateTable.Table.PhysicalName)
 						.AppendLine();
 				}
@@ -287,23 +344,38 @@ namespace LinqToDB.DataProvider.Oracle
 				if (commandNumber == 1)
 				{
 					StringBuilder
-						.Append("CREATE SEQUENCE SIDENTITY_")
+						.Append("CREATE SEQUENCE ")
+						.Append(schemaPrefix)
+						.Append("SIDENTITY_")
 						.Append(SelectQuery.CreateTable.Table.PhysicalName)
 						.AppendLine();
 				}
 				else
 				{
 					StringBuilder
-						.AppendFormat("CREATE OR REPLACE TRIGGER  TIDENTITY_{0}", SelectQuery.CreateTable.Table.PhysicalName)
-						.AppendLine  ()
-						.AppendFormat("BEFORE INSERT ON {0} FOR EACH ROW", SelectQuery.CreateTable.Table.PhysicalName)
+						.AppendFormat("CREATE OR REPLACE TRIGGER {0}TIDENTITY_{1}", schemaPrefix, SelectQuery.CreateTable.Table.PhysicalName)
+						.AppendLine()
+						.AppendFormat("BEFORE INSERT ON ");
+
+					BuildPhysicalTable(SelectQuery.CreateTable.Table, null);
+
+					StringBuilder
+						.AppendLine(" FOR EACH ROW")
 						.AppendLine  ()
 						.AppendLine  ("BEGIN")
-						.AppendFormat("\tSELECT SIDENTITY_{1}.NEXTVAL INTO :NEW.{0} FROM dual;", _identityField.PhysicalName, SelectQuery.CreateTable.Table.PhysicalName)
+						.AppendFormat("\tSELECT {2}SIDENTITY_{1}.NEXTVAL INTO :NEW.{0} FROM dual;", _identityField.PhysicalName, SelectQuery.CreateTable.Table.PhysicalName, schemaPrefix)
 						.AppendLine  ()
 						.AppendLine  ("END;");
 				}
 			}
+		}
+
+		public override StringBuilder BuildTableName(StringBuilder sb, string database, string owner, string table)
+		{
+			if (owner != null)
+				sb.Append(owner).Append(".");
+
+			return sb.Append(table);
 		}
 
 #if !SILVERLIGHT

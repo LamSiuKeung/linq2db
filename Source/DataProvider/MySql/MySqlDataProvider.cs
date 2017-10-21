@@ -1,6 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Data;
+using LinqToDB.Extensions;
+using System.Linq;
+using LinqToDB.Tools;
 
 namespace LinqToDB.DataProvider.MySql
 {
@@ -35,8 +38,8 @@ namespace LinqToDB.DataProvider.MySql
 
 		protected override void OnConnectionTypeCreated(Type connectionType)
 		{
-			_mySqlDecimalType  = connectionType.Assembly.GetType("MySql.Data.Types.MySqlDecimal",  true);
-			_mySqlDateTimeType = connectionType.Assembly.GetType("MySql.Data.Types.MySqlDateTime", true);
+			_mySqlDecimalType  = connectionType.AssemblyEx().GetType("MySql.Data.Types.MySqlDecimal",  true);
+			_mySqlDateTimeType = connectionType.AssemblyEx().GetType("MySql.Data.Types.MySqlDateTime", true);
 
 			_mySqlDecimalValueGetter  = TypeAccessor.GetAccessor(_mySqlDecimalType) ["Value"].Getter;
 			_mySqlDateTimeValueGetter = TypeAccessor.GetAccessor(_mySqlDateTimeType)["Value"].Getter;
@@ -50,11 +53,12 @@ namespace LinqToDB.DataProvider.MySql
 			MappingSchema.SetDataType(_mySqlDateTimeType, DataType.DateTime2);
 		}
 
+#if !NETSTANDARD
 		public override SchemaProvider.ISchemaProvider GetSchemaProvider()
 		{
 			return new MySqlSchemaProvider();
 		}
-
+#endif
 		public override ISqlBuilder CreateSqlBuilder()
 		{
 			return new MySqlSqlBuilder(GetSqlOptimizer(), SqlProviderFlags, MappingSchema.ValueToSqlConverter);
@@ -101,6 +105,21 @@ namespace LinqToDB.DataProvider.MySql
 		public override BulkCopyRowsCopied BulkCopy<T>(
 			[JetBrains.Annotations.NotNull] DataConnection dataConnection, BulkCopyOptions options, IEnumerable<T> source)
 		{
+			if (source == null)
+				throw new ArgumentException("Source is null!", "source");
+
+#pragma warning disable 618
+			if (options.RetrieveSequence)
+			{
+				var list = source.RetrieveIdentity(dataConnection);
+
+				if (!ReferenceEquals(list, source))
+					options.KeepIdentity = true;
+
+				source = list;
+			}
+#pragma warning restore 618
+
 			return new MySqlBulkCopy().BulkCopy(
 				options.BulkCopyType == BulkCopyType.Default ? MySqlTools.DefaultBulkCopyType : options.BulkCopyType,
 				dataConnection,

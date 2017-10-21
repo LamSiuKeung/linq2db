@@ -2,6 +2,11 @@
 
 namespace LinqToDB
 {
+	/// <summary>
+	/// List of data types, supported by linq2db.
+	/// Provider-level support depends on database capabilities and current implementation
+	/// support level and could vary for different providers.
+	/// </summary>
 	public enum DataType
 	{
 		/// <summary>
@@ -208,8 +213,23 @@ namespace LinqToDB
 		BitArray,
 
 		/// <summary>
-		/// Dictionary type for key-value pairs
+		/// Dictionary type for key-value pairs.
 		/// </summary>
 		Dictionary,
+
+		/// <summary>
+		/// Result set (for example OracleDbType.RefCursor).
+		/// </summary>
+		Cursor,
+
+		/// <summary>
+		/// Json type utilized in postgres provider.
+		/// </summary>
+		Json,
+
+		/// <summary>
+		/// Binary type utilized postgres provider (jsonb).
+		/// </summary>
+		BinaryJson
 	}
 }

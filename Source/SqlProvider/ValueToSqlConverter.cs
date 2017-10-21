@@ -35,7 +35,7 @@ namespace LinqToDB.SqlProvider
 			SetConverter(typeof(Int64),      (sb,dt,v) => sb.Append((Int64)     v));
 			SetConverter(typeof(UInt64),     (sb,dt,v) => sb.Append((UInt64)    v));
 			SetConverter(typeof(Single),     (sb,dt,v) => sb.Append(((float)    v). ToString(_numberFormatInfo)));
-			SetConverter(typeof(Double),     (sb,dt,v) => sb.Append(((double)   v). ToString(_numberFormatInfo)));
+			SetConverter(typeof(Double),     (sb,dt,v) => sb.Append(((double)   v). ToString("G17", _numberFormatInfo)));
 			SetConverter(typeof(Decimal),    (sb,dt,v) => sb.Append(((decimal)v).   ToString(_numberFormatInfo)));
 			SetConverter(typeof(DateTime),   (sb,dt,v) => BuildDateTime(sb, (DateTime)v));
 			SetConverter(typeof(String),     (sb,dt,v) => BuildString  (sb, v.ToString()));
@@ -179,7 +179,11 @@ namespace LinqToDB.SqlProvider
 			{
 				switch (type.GetTypeCodeEx())
 				{
-					case TypeCode.DBNull   : stringBuilder.Append("NULL");   return true;
+#if NETSTANDARD
+					case (TypeCode)2       : stringBuilder.Append("NULL"); return true;
+#else
+					case TypeCode.DBNull   : stringBuilder.Append("NULL"); return true;
+#endif
 					case TypeCode.Boolean  : converter = _booleanConverter;  break;
 					case TypeCode.Char     : converter = _charConverter;     break;
 					case TypeCode.SByte    : converter = _sByteConverter;    break;

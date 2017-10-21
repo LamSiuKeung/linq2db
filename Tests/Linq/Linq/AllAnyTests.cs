@@ -2,6 +2,10 @@
 using System.Linq;
 using System.Linq.Expressions;
 
+#if !SL4
+using System.Threading.Tasks;
+#endif
+
 using LinqToDB;
 
 using NUnit.Framework;
@@ -220,7 +224,21 @@ namespace Tests.Linq
 				Assert.AreEqual(
 					   Child.All(c => c.ParentID > 3),
 					db.Child.All(c => c.ParentID > 3));
+
 		}
+
+#if !SL4
+
+		[Test, DataContextSource]
+		public async Task All4Async(string context)
+		{
+			using (var db = GetDataContext(context))
+				Assert.AreEqual(
+					         Child.All     (c => c.ParentID > 3),
+					await db.Child.AllAsync(c => c.ParentID > 3));
+		}
+
+#endif
 
 		[Test, DataContextSource]
 		public void All5(string context)
@@ -249,10 +267,12 @@ namespace Tests.Linq
 		[Test, NorthwindDataContext]
 		public void AllNestedTest(string context)
 		{
-			using (var db = new NorthwindDB())
+			var dd = GetNorthwindAsList(context);
+
+			using (var db = new NorthwindDB(context))
 				AreEqual(
-					from c in    Customer
-					where    Order.Where(o => o.Customer == c).All(o =>    Employee.Where(e => o.Employee == e).Any(e => e.FirstName.StartsWith("A")))
+					from c in dd.Customer
+					where dd.Order.Where(o => o.Customer == c).All(o => dd.Employee.Where(e => o.Employee == e).Any(e => e.FirstName.StartsWith("A")))
 					select c,
 					from c in db.Customer
 					where db.Order.Where(o => o.Customer == c).All(o => db.Employee.Where(e => o.Employee == e).Any(e => e.FirstName.StartsWith("A")))
@@ -262,18 +282,21 @@ namespace Tests.Linq
 		[Test, NorthwindDataContext]
 		public void ComplexAllTest(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
+			{
+				var dd = GetNorthwindAsList(context);
 				AreEqual(
-					from o in Order
+					from o in dd.Order
 					where
-						Customer.Where(c => c == o.Customer).All(c => c.CompanyName.StartsWith("A")) ||
-						Employee.Where(e => e == o.Employee).All(e => e.FirstName.EndsWith("t"))
+					dd.Customer.Where(c => c == o.Customer).All(c => c.CompanyName.StartsWith("A")) ||
+					dd.Employee.Where(e => e == o.Employee).All(e => e.FirstName.EndsWith("t"))
 					select o,
 					from o in db.Order
 					where
-						db.Customer.Where(c => c == o.Customer).All(c => c.CompanyName.StartsWith("A")) ||
-						db.Employee.Where(e => e == o.Employee).All(e => e.FirstName.EndsWith("t"))
+					db.Customer.Where(c => c == o.Customer).All(c => c.CompanyName.StartsWith("A")) ||
+					db.Employee.Where(e => e == o.Employee).All(e => e.FirstName.EndsWith("t"))
 					select o);
+			}
 		}
 	}
 }

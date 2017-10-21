@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Text;
+using System.Globalization;
 
 namespace LinqToDB.DataProvider.Access
 {
@@ -37,7 +38,7 @@ namespace LinqToDB.DataProvider.Access
 
 		static void ConvertStringToSql(StringBuilder stringBuilder, string value)
 		{
-			DataTools.ConvertStringToSql(stringBuilder, "+", "'", AppendConversion, value);
+			DataTools.ConvertStringToSql(stringBuilder, "+", null, AppendConversion, value, null);
 		}
 
 		static void ConvertCharToSql(StringBuilder stringBuilder, char value)

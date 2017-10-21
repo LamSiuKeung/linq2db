@@ -237,7 +237,7 @@ namespace LinqToDB.SqlQuery
 			switch (underlyingType.GetTypeCodeEx())
 			{
 				case TypeCode.Boolean  : return Boolean;
-				case TypeCode.Char     : return Char;
+				case TypeCode.Char     : return DbNChar;
 				case TypeCode.SByte    : return SByte;
 				case TypeCode.Byte     : return Byte;
 				case TypeCode.Int16    : return Int16;
@@ -260,7 +260,12 @@ namespace LinqToDB.SqlQuery
 					if (underlyingType == typeof(TimeSpan))       return TimeSpan;
 					break;
 
+#if NETSTANDARD
+				case (TypeCode)2       :
+#else
 				case TypeCode.DBNull   :
+#endif
+
 				case TypeCode.Empty    :
 				default                : break;
 			}
@@ -326,6 +331,11 @@ namespace LinqToDB.SqlQuery
 				case DataType.Time             : return DbTime;
 				case DataType.DateTime2        : return DbDateTime2;
 				case DataType.DateTimeOffset   : return DbDateTimeOffset;
+				case DataType.UInt16           : return DbUInt16;
+				case DataType.UInt32           : return DbUInt32;
+				case DataType.UInt64           : return DbUInt64;
+				case DataType.Dictionary       : return DbDictionary;
+
 			}
 
 			throw new InvalidOperationException();
@@ -344,7 +354,7 @@ namespace LinqToDB.SqlQuery
 			return false;
 		}
 
-		#endregion
+#endregion
 
 		#region Default Types
 
@@ -370,6 +380,9 @@ namespace LinqToDB.SqlQuery
 		public static readonly SqlDataType DbInt64          = new SqlDataType(DataType.Int64,          typeof(Int64),                  0, 0,                0);
 		public static readonly SqlDataType DbInt32          = new SqlDataType(DataType.Int32,          typeof(Int32),                  0, 0,                0);
 		public static readonly SqlDataType DbInt16          = new SqlDataType(DataType.Int16,          typeof(Int16),                  0, 0,                0);
+		public static readonly SqlDataType DbUInt64         = new SqlDataType(DataType.UInt64,         typeof(UInt64),                 0, 0,                0);
+		public static readonly SqlDataType DbUInt32         = new SqlDataType(DataType.UInt32,         typeof(UInt32),                 0, 0,                0);
+		public static readonly SqlDataType DbUInt16         = new SqlDataType(DataType.UInt16,         typeof(UInt16),                 0, 0,                0);
 		public static readonly SqlDataType DbSByte          = new SqlDataType(DataType.SByte,          typeof(SByte),                  0, 0,                0);
 		public static readonly SqlDataType DbByte           = new SqlDataType(DataType.Byte,           typeof(Byte),                   0, 0,                0);
 		public static readonly SqlDataType DbBoolean        = new SqlDataType(DataType.Boolean,        typeof(Boolean),                0, 0,                0);
@@ -428,6 +441,7 @@ namespace LinqToDB.SqlQuery
 		public static readonly SqlDataType CharArray        = new SqlDataType(DataType.NVarChar,       typeof(Char[]),      GetMaxLength,               0,  0);
 		public static readonly SqlDataType DateTimeOffset   = DbDateTimeOffset;
 		public static readonly SqlDataType TimeSpan         = DbTime;
+		public static readonly SqlDataType DbDictionary     = new SqlDataType(DataType.Dictionary,     typeof(Dictionary<string, string>), 0,          0,  0);
 
 #if !SILVERLIGHT && !NETFX_CORE
 		public static readonly SqlDataType SqlByte          = new SqlDataType(DataType.Byte,           typeof(SqlByte),                0,               0,  0);

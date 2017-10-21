@@ -1,12 +1,37 @@
-
-DROP TABLE Doctor
+﻿
+DROP TABLE IF EXISTS Doctor
 GO
-DROP TABLE Patient
+DROP TABLE IF EXISTS Patient
+GO
+
+DROP TABLE IF EXISTS InheritanceParent
+GO
+CREATE TABLE InheritanceParent
+(
+	InheritanceParentId int          NOT NULL,
+	TypeDiscriminator   int              NULL,
+	Name                varchar(50)      NULL,
+
+	 CONSTRAINT PK_InheritanceParent PRIMARY KEY CLUSTERED (InheritanceParentId)
+)
+GO
+
+DROP TABLE IF EXISTS InheritanceChild
+GO
+CREATE TABLE InheritanceChild
+(
+	InheritanceChildId  int          NOT NULL,
+	InheritanceParentId int          NOT NULL,
+	TypeDiscriminator   int              NULL,
+	Name                varchar(50)      NULL,
+
+	 CONSTRAINT PK_InheritanceChild PRIMARY KEY CLUSTERED (InheritanceChildId)
+)
 GO
 
 -- Person Table
 
-DROP TABLE Person
+DROP TABLE IF EXISTS Person
 GO
 
 CREATE TABLE Person
@@ -23,6 +48,13 @@ GO
 INSERT INTO Person (FirstName, LastName, Gender) VALUES ('John',   'Pupkin',    'M')
 GO
 INSERT INTO Person (FirstName, LastName, Gender) VALUES ('Tester', 'Testerson', 'M')
+GO
+INSERT INTO Person (FirstName, LastName, Gender) VALUES ('Jane',   'Doe',       'F')
+GO
+INSERT INTO Person (FirstName, LastName, Gender) VALUES ('Jürgen', 'König',     'M')
+GO
+
+CREATE OR REPLACE VIEW PersonView AS SELECT * FROM Person
 GO
 
 -- Doctor Table Extension
@@ -58,7 +90,7 @@ GO
 
 -- Data Types test
 
-DROP TABLE DataTypeTest
+DROP TABLE IF EXISTS DataTypeTest
 GO
 
 CREATE TABLE DataTypeTest
@@ -89,11 +121,11 @@ CREATE TABLE DataTypeTest
 )
 GO
 
-DROP TABLE Parent
+DROP TABLE IF EXISTS Parent
 GO
-DROP TABLE Child
+DROP TABLE IF EXISTS Child
 GO
-DROP TABLE GrandChild
+DROP TABLE IF EXISTS GrandChild
 GO
 
 CREATE TABLE Parent     (ParentID int, Value1 int)
@@ -104,7 +136,7 @@ CREATE TABLE GrandChild (ParentID int, ChildID int, GrandChildID int)
 GO
 
 
-DROP TABLE LinqDataTypes
+DROP TABLE IF EXISTS LinqDataTypes
 GO
 
 CREATE TABLE LinqDataTypes
@@ -122,11 +154,12 @@ CREATE TABLE LinqDataTypes
 	BinaryValue    varbinary(5000) NULL,
 	SmallIntValue  smallint,
 	IntValue       int             NULL,
-	BigIntValue    bigint          NULL
+	BigIntValue    bigint          NULL,
+	StringValue    varchar(50)     NULL
 )
 GO
 
-DROP TABLE TestIdentity
+DROP TABLE IF EXISTS TestIdentity
 GO
 
 CREATE TABLE TestIdentity (
@@ -136,7 +169,7 @@ CREATE TABLE TestIdentity (
 GO
 
 
-DROP TABLE AllTypes
+DROP TABLE IF EXISTS AllTypes
 GO
 
 CREATE TABLE AllTypes
@@ -158,10 +191,18 @@ CREATE TABLE AllTypes
 	timestampDataType   timestamp                    NULL,
 	timeDataType        time                         NULL,
 	yearDataType        year                         NULL,
+-- SKIP MySql57 BEGIN
 	year2DataType       year(2)                      NULL,
+-- SKIP MySql57 END
+-- SKIP MySql BEGIN
+-- SKIP MariaDB BEGIN
+	year2DataType       year(4)                      NULL,
+-- SKIP MySql END
+-- SKIP MariaDB END
 	year4DataType       year(4)                      NULL,
 
 	charDataType        char(1)                      NULL,
+	char20DataType      char(20)                     NULL,
 	varcharDataType     varchar(20)                  NULL,
 	textDataType        text                         NULL,
 
@@ -279,13 +320,13 @@ SELECT
 GO
 
 
-DROP TABLE TestSameName
+DROP TABLE IF EXISTS TestSameName
 GO
 
-DROP TABLE test_schema.TestSameName
+DROP TABLE IF EXISTS test_schema.TestSameName
 GO
 
-DROP SCHEMA test_schema
+DROP SCHEMA IF EXISTS test_schema
 GO
 
 CREATE SCHEMA test_schema
@@ -309,4 +350,68 @@ AS
 	SELECT `Person`.`PersonID` AS `ID`
 	FROM `Person`
 	WHERE (`Person`.`Gender` = 'M')
+GO
+
+-- merge test tables
+DROP TABLE IF EXISTS TestMerge1
+GO
+DROP TABLE IF EXISTS TestMerge2
+GO
+CREATE TABLE TestMerge1
+(
+	Id       int          NOT NULL,
+	Field1   int              NULL,
+	Field2   int              NULL,
+	Field3   int              NULL,
+	Field4   int              NULL,
+	Field5   int              NULL,
+
+	FieldInt64      BIGINT            NULL,
+	FieldBoolean    BIT               NULL,
+	FieldString     VARCHAR(20)       NULL,
+	FieldNString    NVARCHAR(20)      NULL,
+	FieldChar       CHAR(1)           NULL,
+	FieldNChar      NCHAR(1)          NULL,
+	FieldFloat      FLOAT             NULL,
+	FieldDouble     DOUBLE            NULL,
+	FieldDateTime   DATETIME          NULL,
+	FieldBinary     VARBINARY(20)     NULL,
+	FieldGuid       CHAR(36)          NULL,
+	FieldDecimal    DECIMAL(24, 10)   NULL,
+	FieldDate       DATE              NULL,
+	FieldTime       TIME              NULL,
+	FieldEnumString VARCHAR(20)       NULL,
+	FieldEnumNumber INT               NULL,
+
+	CONSTRAINT PK_TestMerge1 PRIMARY KEY CLUSTERED (Id)
+)
+GO
+CREATE TABLE TestMerge2
+(
+	Id       int          NOT NULL,
+	Field1   int              NULL,
+	Field2   int              NULL,
+	Field3   int              NULL,
+	Field4   int              NULL,
+	Field5   int              NULL,
+
+	FieldInt64      BIGINT            NULL,
+	FieldBoolean    BIT               NULL,
+	FieldString     VARCHAR(20)       NULL,
+	FieldNString    NVARCHAR(20)      NULL,
+	FieldChar       CHAR(1)           NULL,
+	FieldNChar      NCHAR(1)          NULL,
+	FieldFloat      FLOAT             NULL,
+	FieldDouble     DOUBLE            NULL,
+	FieldDateTime   DATETIME          NULL,
+	FieldBinary     VARBINARY(20)     NULL,
+	FieldGuid       CHAR(36)          NULL,
+	FieldDecimal    DECIMAL(24, 10)   NULL,
+	FieldDate       DATE              NULL,
+	FieldTime       TIME              NULL,
+	FieldEnumString VARCHAR(20)       NULL,
+	FieldEnumNumber INT               NULL,
+
+	CONSTRAINT PK_TestMerge2 PRIMARY KEY CLUSTERED (Id)
+)
 GO

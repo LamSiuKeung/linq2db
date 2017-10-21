@@ -15,23 +15,41 @@ namespace LinqToDB.DataProvider.SQLite
 		protected override List<TableInfo> GetTables(DataConnection dataConnection)
 		{
 			var tables = ((DbConnection)dataConnection.Connection).GetSchema("Tables");
+			var views =  ((DbConnection)dataConnection.Connection).GetSchema("Views");
 
-			return
-			(
-				from t in tables.AsEnumerable()
-				where t.Field<string>("TABLE_TYPE") != "SYSTEM_TABLE"
-				let catalog = t.Field<string>("TABLE_CATALOG")
-				let schema  = t.Field<string>("TABLE_SCHEMA")
-				let name    = t.Field<string>("TABLE_NAME")
-				select new TableInfo
-				{
-					TableID         = catalog + '.' + schema + '.' + name,
-					CatalogName     = catalog,
-					SchemaName      = schema,
-					TableName       = name,
-					IsDefaultSchema = schema.IsNullOrEmpty(),
-				}
-			).ToList();
+			return Enumerable
+				.Empty<TableInfo>()
+				.Concat
+				(
+					from t in tables.AsEnumerable()
+					where t.Field<string>("TABLE_TYPE") != "SYSTEM_TABLE"
+					let catalog = t.Field<string>("TABLE_CATALOG")
+					let schema  = t.Field<string>("TABLE_SCHEMA")
+					let name    = t.Field<string>("TABLE_NAME")
+					select new TableInfo
+					{
+						TableID         = catalog + '.' + schema + '.' + name,
+						CatalogName     = catalog,
+						SchemaName      = schema,
+						TableName       = name,
+						IsDefaultSchema = schema.IsNullOrEmpty(),
+					}
+				)
+				.Concat(
+					from t in views.AsEnumerable()
+					let catalog = t.Field<string>("TABLE_CATALOG")
+					let schema  = t.Field<string>("TABLE_SCHEMA")
+					let name    = t.Field<string>("TABLE_NAME")
+					select new TableInfo
+					{
+						TableID         = catalog + '.' + schema + '.' + name,
+						CatalogName     = catalog,
+						SchemaName      = schema,
+						TableName       = name,
+						IsDefaultSchema = schema.IsNullOrEmpty(),
+						IsView          = true,
+					}
+				).ToList();
 		}
 
 		protected override List<PrimaryKeyInfo> GetPrimaryKeys(DataConnection dataConnection)
@@ -87,20 +105,33 @@ namespace LinqToDB.DataProvider.SQLite
 		{
 			var fks = ((DbConnection)dataConnection.Connection).GetSchema("ForeignKeys");
 
-			return
+			var result = 
 			(
 				from fk in fks.AsEnumerable()
 				where fk.Field<string>("CONSTRAINT_TYPE") == "FOREIGN KEY"
 				select new ForeingKeyInfo
 				{
-					Name         = fk.Field<string>("CONSTRAINT_NAME"),
-					ThisTableID  = fk.Field<string>("TABLE_CATALOG")   + "." + fk.Field<string>("TABLE_SCHEMA")   + "." + fk.Field<string>("TABLE_NAME"),
-					ThisColumn   = fk.Field<string>("FKEY_FROM_COLUMN"),
-					OtherTableID = fk.Field<string>("FKEY_TO_CATALOG") + "." + fk.Field<string>("FKEY_TO_SCHEMA") + "." + fk.Field<string>("FKEY_TO_TABLE"),
-					OtherColumn  = fk.Field<string>("FKEY_TO_COLUMN"),
-					Ordinal      = fk.Field<int>("FKEY_FROM_ORDINAL_POSITION"),
+					Name         = fk.Field<string>("CONSTRAINT_NAME"           ),
+					ThisTableID  = fk.Field<string>("TABLE_CATALOG"             ) + "." + fk.Field<string>("TABLE_SCHEMA")   + "." + fk.Field<string>("TABLE_NAME"),
+					ThisColumn   = fk.Field<string>("FKEY_FROM_COLUMN"          ),
+					OtherTableID = fk.Field<string>("FKEY_TO_CATALOG"           ) + "." + fk.Field<string>("FKEY_TO_SCHEMA") + "." + fk.Field<string>("FKEY_TO_TABLE"),
+					OtherColumn  = fk.Field<string>("FKEY_TO_COLUMN"            ),
+					Ordinal      = fk.Field<int>   ("FKEY_FROM_ORDINAL_POSITION"),
 				}
 			).ToList();
+
+			// Handle case where Foreign Key reference does not include a column name (Issue #784)
+			if (result.Any(fk => string.IsNullOrEmpty(fk.OtherColumn)))
+			{
+				var pks = GetPrimaryKeys(dataConnection).ToDictionary(pk => string.Format("{0}:{1}", pk.TableID, pk.Ordinal), pk => pk.ColumnName);
+				foreach (var f in result.Where(fk => string.IsNullOrEmpty(fk.OtherColumn)))
+				{
+					var k = string.Format("{0}:{1}", f.OtherTableID, f.Ordinal);
+					if (pks.ContainsKey(k))
+						f.OtherColumn = pks[k];
+				}
+			}
+			return result;
 		}
 
 		protected override string GetDatabaseName(DbConnection dbConnection)

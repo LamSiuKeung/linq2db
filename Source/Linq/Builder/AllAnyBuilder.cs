@@ -19,6 +19,12 @@ namespace LinqToDB.Linq.Builder
 
 			if (methodCall.Arguments.Count == 2)
 			{
+				if (sequence.SelectQuery.Select.TakeValue != null ||
+				    sequence.SelectQuery.Select.SkipValue != null)
+				{
+					sequence = new SubQueryContext(sequence);
+				}
+
 				var condition = (LambdaExpression)methodCall.Arguments[1].Unwrap();
 
 				if (methodCall.Method.Name == "All")
@@ -83,13 +89,15 @@ namespace LinqToDB.Linq.Builder
 				var expr   = Builder.BuildSql(typeof(bool), 0);
 				var mapper = Builder.BuildMapper<object>(expr);
 
-				query.SetElementQuery(mapper.Compile());
+				QueryRunner.SetRunQuery(query, mapper);
 			}
 
-			public override Expression BuildExpression(Expression expression, int level)
+			public override Expression BuildExpression(Expression expression, int level, bool enforceServerSide)
 			{
-				var idx = ConvertToIndex(expression, level, ConvertFlags.Field);
-				return Builder.BuildSql(typeof(bool), idx[0].Index);
+				var index = ConvertToIndex(expression, level, ConvertFlags.Field)[0].Index;
+				if (Parent != null)
+					ConvertToParentIndex(index, Parent);
+				return Builder.BuildSql(typeof(bool), index);
 			}
 
 			public override SqlInfo[] ConvertToSql(Expression expression, int level, ConvertFlags flags)

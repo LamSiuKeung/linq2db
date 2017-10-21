@@ -3,9 +3,15 @@ using System.Collections.Generic;
 using System.Data;
 using System.Linq.Expressions;
 
+#if !NOASYNC
+using System.Threading;
+using System.Threading.Tasks;
+#endif
+
 namespace LinqToDB.DataProvider.DB2
 {
 	using Data;
+	using Extensions;
 	using Mapping;
 	using SchemaProvider;
 	using SqlProvider;
@@ -21,7 +27,9 @@ namespace LinqToDB.DataProvider.DB2
 			SqlProviderFlags.AcceptsTakeAsParameterIfSkip = true;
 			SqlProviderFlags.IsDistinctOrderBySupported   = version != DB2Version.zOS;
 
-			SetCharField("CHAR", (r,i) => r.GetString(i).TrimEnd());
+			SetCharFieldToType<char>("CHAR", (r, i) => DataTools.GetChar(r, i));
+
+			SetCharField("CHAR", (r,i) => r.GetString(i).TrimEnd(' '));
 
 			_sqlOptimizer = new DB2SqlOptimizer(SqlProviderFlags);
 		}
@@ -30,24 +38,24 @@ namespace LinqToDB.DataProvider.DB2
 		{
 			DB2Types.ConnectionType = connectionType;
 
-			DB2Types.DB2Int64.       Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Int64",        true);
-			DB2Types.DB2Int32.       Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Int32",        true);
-			DB2Types.DB2Int16.       Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Int16",        true);
-			DB2Types.DB2Decimal.     Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Decimal",      true);
-			DB2Types.DB2DecimalFloat.Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2DecimalFloat", true);
-			DB2Types.DB2Real.        Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Real",         true);
-			DB2Types.DB2Real370.     Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Real370",      true);
-			DB2Types.DB2Double.      Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Double",       true);
-			DB2Types.DB2String.      Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2String",       true);
-			DB2Types.DB2Clob.        Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Clob",         true);
-			DB2Types.DB2Binary.      Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Binary",       true);
-			DB2Types.DB2Blob.        Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Blob",         true);
-			DB2Types.DB2Date.        Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Date",         true);
-			DB2Types.DB2Time.        Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Time",         true);
-			DB2Types.DB2TimeStamp.   Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2TimeStamp",    true);
-			DB2Types.DB2Xml               = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2Xml",          true);
-			DB2Types.DB2RowId.       Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2RowId",        true);
-			DB2Types.DB2DateTime.    Type = connectionType.Assembly.GetType("IBM.Data.DB2Types.DB2DateTime",     false);
+			DB2Types.DB2Int64.       Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Int64",        true);
+			DB2Types.DB2Int32.       Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Int32",        true);
+			DB2Types.DB2Int16.       Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Int16",        true);
+			DB2Types.DB2Decimal.     Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Decimal",      true);
+			DB2Types.DB2DecimalFloat.Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2DecimalFloat", true);
+			DB2Types.DB2Real.        Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Real",         true);
+			DB2Types.DB2Real370.     Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Real370",      true);
+			DB2Types.DB2Double.      Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Double",       true);
+			DB2Types.DB2String.      Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2String",       true);
+			DB2Types.DB2Clob.        Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Clob",         true);
+			DB2Types.DB2Binary.      Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Binary",       true);
+			DB2Types.DB2Blob.        Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Blob",         true);
+			DB2Types.DB2Date.        Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Date",         true);
+			DB2Types.DB2Time.        Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Time",         true);
+			DB2Types.DB2TimeStamp.   Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2TimeStamp",    true);
+			DB2Types.DB2Xml               = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2Xml",          true);
+			DB2Types.DB2RowId.       Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2RowId",        true);
+			DB2Types.DB2DateTime.    Type = connectionType.AssemblyEx().GetType("IBM.Data.DB2Types.DB2DateTime",     false);
 
 			SetProviderField(DB2Types.DB2Int64,        typeof(Int64),    "GetDB2Int64");
 			SetProviderField(DB2Types.DB2Int32,        typeof(Int32),    "GetDB2Int32");
@@ -96,7 +104,7 @@ namespace LinqToDB.DataProvider.DB2
 			if (DataConnection.TraceSwitch.TraceInfo)
 			{
 				DataConnection.WriteTraceLine(
-					DataReaderType.Assembly.FullName,
+					DataReaderType.AssemblyEx().FullName,
 					DataConnection.TraceSwitch.DisplayName);
 
 				DataConnection.WriteTraceLine(
@@ -139,12 +147,14 @@ namespace LinqToDB.DataProvider.DB2
 			}
 		}
 
+#if !NETSTANDARD
 		public override ISchemaProvider GetSchemaProvider()
 		{
 			return Version == DB2Version.zOS ?
 				new DB2zOSSchemaProvider() :
 				new DB2LUWSchemaProvider();
 		}
+#endif
 
 		public override ISqlBuilder CreateSqlBuilder()
 		{
@@ -210,10 +220,18 @@ namespace LinqToDB.DataProvider.DB2
 						value    = ((Guid)value).ToByteArray();
 						dataType = DataType.VarBinary;
 					}
+					if (value == null)
+						dataType = DataType.VarBinary;
 					break;
 				case DataType.Binary     :
 				case DataType.VarBinary  :
 					if (value is Guid) value = ((Guid)value).ToByteArray();
+					else if (parameter.Size == 0 && value != null && value.GetType().Name == "DB2Binary")
+					{
+						dynamic v = value;
+						if (v.IsNull)
+							value = DBNull.Value;
+					}
 					break;
 				case DataType.Blob       :
 					base.SetParameter(parameter, "@" + name, dataType, value);
@@ -251,6 +269,26 @@ namespace LinqToDB.DataProvider.DB2
 				throw new LinqToDBException("DB2 MERGE statement does not support DELETE by source.");
 
 			return new DB2Merge().Merge(dataConnection, deletePredicate, delete, source, tableName, databaseName, schemaName);
+		}
+
+#if !NOASYNC
+
+		public override Task<int> MergeAsync<T>(DataConnection dataConnection, Expression<Func<T,bool>> deletePredicate, bool delete, IEnumerable<T> source,
+			string tableName, string databaseName, string schemaName, CancellationToken token)
+		{
+			if (delete)
+				throw new LinqToDBException("DB2 MERGE statement does not support DELETE by source.");
+
+			return new DB2Merge().MergeAsync(dataConnection, deletePredicate, delete, source, tableName, databaseName, schemaName, token);
+		}
+
+#endif
+
+		protected override BasicMergeBuilder<TTarget, TSource> GetMergeBuilder<TTarget, TSource>(
+			DataConnection connection,
+			IMergeable<TTarget, TSource> merge)
+		{
+			return new DB2MergeBuilder<TTarget, TSource>(connection, merge);
 		}
 
 		#endregion

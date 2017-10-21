@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-
+using System.Threading.Tasks;
 using LinqToDB;
 using LinqToDB.Linq;
 using LinqToDB.Mapping;
@@ -143,49 +143,61 @@ namespace Tests.Linq
 		[Test, NorthwindDataContext]
 		public void TypeCastAsTest1(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
+			{
+				var dd = GetNorthwindAsList(context);
 				AreEqual(
-					   DiscontinuedProduct.ToList()
+					dd.DiscontinuedProduct.ToList()
 						.Select(p => p as Northwind.Product)
 						.Select(p => p == null ? "NULL" : p.ProductName),
 					db.DiscontinuedProduct
 						.Select(p => p as Northwind.Product)
 						.Select(p => p == null ? "NULL" : p.ProductName));
+			}
 		}
 
 		[Test, NorthwindDataContext]
 		public void TypeCastAsTest11(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
+			{
+				var dd = GetNorthwindAsList(context);
 				AreEqual(
-					   DiscontinuedProduct.ToList()
+					dd.DiscontinuedProduct.ToList()
 						.Select(p => new { p = p as Northwind.Product })
 						.Select(p => p.p == null ? "NULL" : p.p.ProductName),
 					db.DiscontinuedProduct
 						.Select(p => new { p = p as Northwind.Product })
 						.Select(p => p.p == null ? "NULL" : p.p.ProductName));
+			}
 		}
 
 		[Test, NorthwindDataContext]
 		public void TypeCastAsTest2(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
+			{
+				var dd = GetNorthwindAsList(context);
 				AreEqual(
-					   Product.ToList()
+					dd.Product.ToList()
 						.Select(p => p as Northwind.DiscontinuedProduct)
 						.Select(p => p == null ? "NULL" : p.ProductName),
 					db.Product
 						.Select(p => p as Northwind.DiscontinuedProduct)
 						.Select(p => p == null ? "NULL" : p.ProductName));
+			}
 		}
 
 		[Test, NorthwindDataContext]
 		public void FirstOrDefault(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
+			{
+				var dd = GetNorthwindAsList(context);
 				Assert.AreEqual(
-					   DiscontinuedProduct.FirstOrDefault().ProductID,
+					dd.DiscontinuedProduct.FirstOrDefault().ProductID,
 					db.DiscontinuedProduct.FirstOrDefault().ProductID);
+			}
 		}
 
 		[Test, DataContextSource]
@@ -196,6 +208,19 @@ namespace Tests.Linq
 					   ParentInheritance.OfType<ParentInheritance1>().Cast<ParentInheritanceBase>(),
 					db.ParentInheritance.OfType<ParentInheritance1>().Cast<ParentInheritanceBase>());
 		}
+
+#if !NOASYNC
+
+		[Test, DataContextSource]
+		public async Task Cast1Async(string context)
+		{
+			using (var db = GetDataContext(context))
+				AreEqual(
+					      ParentInheritance.OfType<ParentInheritance1>().Cast<ParentInheritanceBase>(),
+					await db.ParentInheritance.OfType<ParentInheritance1>().Cast<ParentInheritanceBase>().ToListAsync());
+		}
+
+#endif
 
 		class ParentEx : Parent
 		{
@@ -284,14 +309,15 @@ namespace Tests.Linq
 					.Select(ch => ch.ChildID)
 					.OrderBy(x => x)
 					.ToList();
-				Assert.IsTrue(childIDs.SequenceEqual(new [] {11, 21} ));
+
+				Assert.IsTrue(childIDs.SequenceEqual(new [] {11, 21} ), "{0}: {1}, {2}", childIDs.Count, childIDs[0], childIDs[1]);
 			}
 		}
 
 		[Test, NorthwindDataContext]
 		public void ReferenceNavigation(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
 			{
 				var result =
 					from od in db.OrderDetail
@@ -317,7 +343,7 @@ namespace Tests.Linq
 		[Test, NorthwindDataContext]
 		public void TypeCastIsChildConditional1(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
 			{
 				var result   = db.Product.         Select(x => x is Northwind.DiscontinuedProduct ? x : null).ToList();
 				var expected = db.Product.ToList().Select(x => x is Northwind.DiscontinuedProduct ? x : null).ToList();
@@ -332,7 +358,7 @@ namespace Tests.Linq
 		[Test, NorthwindDataContext]
 		public void TypeCastIsChildConditional2(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
 			{
 				var result   = db.Product.         Select(x => x is Northwind.DiscontinuedProduct);
 				var expected = db.Product.ToList().Select(x => x is Northwind.DiscontinuedProduct);
@@ -348,10 +374,12 @@ namespace Tests.Linq
 		[Test, NorthwindDataContext]
 		public void TypeCastIsChild(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
 			{
+				var dd = GetNorthwindAsList(context);
+
 				var result   = db.Product.Where(x => x is Northwind.DiscontinuedProduct).ToList();
-				var expected =    Product.Where(x => x is Northwind.DiscontinuedProduct).ToList();
+				var expected = dd.Product.Where(x => x is Northwind.DiscontinuedProduct).ToList();
 
 				Assert.Greater(result.Count, 0);
 				Assert.AreEqual(result.Count, expected.Count);
@@ -393,10 +421,12 @@ namespace Tests.Linq
 		[Test, NorthwindDataContext]
 		public void Test15(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
 			{
+				var dd = GetNorthwindAsList(context);
+
 				var result   = db.DiscontinuedProduct.Select(p => p).ToList();
-				var expected =    DiscontinuedProduct.Select(p => p).ToList();
+				var expected = dd.DiscontinuedProduct.Select(p => p).ToList();
 
 				Assert.That(result.Count, Is.Not.EqualTo(0).And.EqualTo(expected.Count));
 			}
@@ -405,10 +435,12 @@ namespace Tests.Linq
 		[Test, NorthwindDataContext]
 		public void Test16(string context)
 		{
-			using (var db = new NorthwindDB())
+			using (var db = new NorthwindDB(context))
 			{
+				var dd = GetNorthwindAsList(context);
+
 				var result   = db.DiscontinuedProduct.ToList();
-				var expected =    DiscontinuedProduct.ToList();
+				var expected = dd.DiscontinuedProduct.ToList();
 
 				Assert.That(result.Count, Is.Not.EqualTo(0).And.EqualTo(expected.Count));
 			}
@@ -554,6 +586,26 @@ namespace Tests.Linq
 				var list = q.Distinct().OfType<Test18Female>().ToList();
 			}
 		}
+
+#if !NOASYNC
+
+		[Test, DataContextSource]
+		public async Task Test18Async(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				var ids = Enumerable.Range(0, 10).ToList();
+				var q   =
+					from p1 in db.GetTable<Test18Person>()
+					where ids.Contains(p1.PersonID)
+					join p2 in db.GetTable<Test18Person>() on p1.PersonID equals p2.PersonID
+					select p1;
+
+				var list = await q.Distinct().OfType<Test18Female>().ToListAsync();
+			}
+		}
+
+#endif
 
 		[Test, DataContextSource]
 		public void Test19(string context)

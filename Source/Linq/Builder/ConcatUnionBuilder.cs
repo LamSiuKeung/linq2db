@@ -102,10 +102,12 @@ namespace LinqToDB.Linq.Builder
 					if (info.Members.Count == 0)
 						throw new InvalidOperationException();
 
+					var mi = info.Members.First(m => m.DeclaringType.IsSameOrParentOf(_unionParameter.Type));
+
 					var member = new Member
 					{
 						SequenceInfo     = info,
-						MemberExpression = Expression.MakeMemberAccess(_unionParameter, info.Members[0])
+						MemberExpression = Expression.MakeMemberAccess(_unionParameter, mi)
 					};
 
 					members.Add(new UnionMember { Member = member, Info1 = info });
@@ -118,7 +120,16 @@ namespace LinqToDB.Linq.Builder
 
 					var em = members.FirstOrDefault(m =>
 						m.Member.SequenceInfo != null &&
-						m.Member.SequenceInfo.CompareLastMember(info));
+						m.Info2 == null &&
+						m.Member.SequenceInfo.CompareMembers(info));
+
+					if (em == null)
+					{
+						em = members.FirstOrDefault(m =>
+							m.Member.SequenceInfo != null &&
+							m.Info2 == null &&
+							m.Member.SequenceInfo.CompareLastMember(info));
+					}
 
 					if (em == null)
 					{
@@ -144,9 +155,10 @@ namespace LinqToDB.Linq.Builder
 
 					if (member.Info1 == null)
 					{
+						var type = members.First(m => m.Info1 != null).Info1.Members.First().GetMemberType();
 						member.Info1 = new SqlInfo(member.Info2.Members)
 						{
-							Sql   = new SqlValue(null),
+							Sql   = new SqlValue(type, null),
 							Query = _sequence1.SelectQuery,
 						};
 
@@ -155,9 +167,12 @@ namespace LinqToDB.Linq.Builder
 
 					if (member.Info2 == null)
 					{
+						var spam = members.First(m => m.Info2 != null).Info2.Members.First();
+						var type = spam.GetMemberType();
+
 						member.Info2 = new SqlInfo(member.Info1.Members)
 						{
-							Sql   = new SqlValue(null),
+							Sql   = new SqlValue(type, null),
 							Query = _sequence2.SelectQuery,
 						};
 					}
@@ -179,13 +194,13 @@ namespace LinqToDB.Linq.Builder
 
 			public override void BuildQuery<T>(Query<T> query, ParameterExpression queryParameter)
 			{
-				var expr   = BuildExpression(null, 0);
+				var expr   = BuildExpression(null, 0, false);
 				var mapper = Builder.BuildMapper<T>(expr);
 
-				query.SetQuery(mapper);
+				QueryRunner.SetRunQuery(query, mapper);
 			}
 
-			public override Expression BuildExpression(Expression expression, int level)
+			public override Expression BuildExpression(Expression expression, int level, bool enforceServerSide)
 			{
 				if (_isObject)
 				{
@@ -229,14 +244,14 @@ namespace LinqToDB.Linq.Builder
 									.Cast<MemberBinding>());
 						}
 
-						var ex = Builder.BuildExpression(this, expr);
+						var ex = Builder.BuildExpression(this, expr, enforceServerSide);
 
 						return ex;
 					}
 
 					if (level == 0 || level == 1)
 					{
-						var levelExpression = expression.GetLevelExpression(1);
+						var levelExpression = expression.GetLevelExpression(Builder.MappingSchema, 1);
 
 						if (ReferenceEquals(expression, levelExpression) && !IsExpression(expression, 1, RequestFor.Object).Result)
 						{
@@ -251,7 +266,7 @@ namespace LinqToDB.Linq.Builder
 					}
 				}
 
-				var ret = _sequence1.BuildExpression(expression, level);
+				var ret = _sequence1.BuildExpression(expression, level, enforceServerSide);
 
 				//if (level == 1)
 				//	_sequence2.BuildExpression(expression, level);
@@ -317,7 +332,7 @@ namespace LinqToDB.Linq.Builder
 
 							if (expression != null && (level == 0 || level == 1) && expression.NodeType == ExpressionType.MemberAccess)
 							{
-								var levelExpression = expression.GetLevelExpression(1);
+								var levelExpression = expression.GetLevelExpression(Builder.MappingSchema, 1);
 
 								if (expression == levelExpression)
 								{
