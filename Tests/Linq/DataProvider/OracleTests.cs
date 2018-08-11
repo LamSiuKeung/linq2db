@@ -23,6 +23,7 @@ using Oracle.ManagedDataAccess.Types;
 
 namespace Tests.DataProvider
 {
+	using LinqToDB.Linq;
 	using Model;
 
 	[TestFixture]
@@ -42,8 +43,9 @@ namespace Tests.DataProvider
 		{
 			protected override IEnumerable<Tuple<object[], string>> GetParameters(string provider)
 			{
-				yield return Tuple.Create(new object[] { provider, false }, (string)null);
-				yield return Tuple.Create(new object[] { provider, true }, (string)null);
+				yield return Tuple.Create(new object[] { provider, AlternativeBulkCopy.InsertAll  }, (string)null);
+				yield return Tuple.Create(new object[] { provider, AlternativeBulkCopy.InsertDual }, (string)null);
+				yield return Tuple.Create(new object[] { provider, AlternativeBulkCopy.InsertInto }, (string)null);
 			}
 		}
 
@@ -76,10 +78,10 @@ namespace Tests.DataProvider
 
 		static void TestType<T>(DataConnection connection, string dataTypeName, T value, string tableName = "AllTypes", bool convertToString = false)
 		{
-			Assert.That(connection.Execute<T>(string.Format("SELECT {0} FROM {1} WHERE ID = 1", dataTypeName, tableName)),
+			Assert.That(connection.Execute<T>($"SELECT {dataTypeName} FROM {tableName} WHERE ID = 1"),
 				Is.EqualTo(connection.MappingSchema.GetDefaultValue(typeof(T))));
 
-			object actualValue   = connection.Execute<T>(string.Format("SELECT {0} FROM {1} WHERE ID = 2", dataTypeName, tableName));
+			object actualValue   = connection.Execute<T>($"SELECT {dataTypeName} FROM {tableName} WHERE ID = 2");
 			object expectedValue = value;
 
 			if (convertToString)
@@ -91,6 +93,15 @@ namespace Tests.DataProvider
 			Assert.That(actualValue, Is.EqualTo(expectedValue));
 		}
 
+		/* If this test fails for you with
+
+		 "ORA-22288: file or LOB operation FILEOPEN failed
+		 The system cannot find the path specified."
+
+			Copy file Data\Oracle\bfile.txt to C:\DataFiles on machine with oracle server
+			(of course only if it is Windows machine)
+
+		*/
 		[Test, OracleDataContext]
 		public void TestDataTypes(string context)
 		{
@@ -436,13 +447,13 @@ namespace Tests.DataProvider
 			{
 				var arr = new byte[] { 0x30, 0x39 };
 
-				Assert.That(conn.Execute<Oracle.DataAccess.Types.OracleBinary>   ("SELECT to_blob('3039')           FROM sys.dual").     Value, Is.EqualTo(arr));
-				Assert.That(conn.Execute<Oracle.DataAccess.Types.OracleBlob>     ("SELECT to_blob('3039')           FROM sys.dual").     Value, Is.EqualTo(arr));
-				Assert.That(conn.Execute<Oracle.DataAccess.Types.OracleDecimal>  ("SELECT Cast(1        as decimal) FROM sys.dual").     Value, Is.EqualTo(1));
-				Assert.That(conn.Execute<Oracle.DataAccess.Types.OracleString>   ("SELECT Cast('12345' as char(6))  FROM sys.dual").     Value, Is.EqualTo("12345 "));
-				Assert.That(conn.Execute<Oracle.DataAccess.Types.OracleClob>     ("SELECT ntextDataType     FROM AllTypes WHERE ID = 2").Value, Is.EqualTo("111"));
-				Assert.That(conn.Execute<Oracle.DataAccess.Types.OracleDate>     ("SELECT datetimeDataType  FROM AllTypes WHERE ID = 2").Value, Is.EqualTo(new DateTime(2012, 12, 12, 12, 12, 12)));
-				Assert.That(conn.Execute<Oracle.DataAccess.Types.OracleTimeStamp>("SELECT datetime2DataType FROM AllTypes WHERE ID = 2").Value, Is.EqualTo(new DateTime(2012, 12, 12, 12, 12, 12, 12)));
+				Assert.That(conn.Execute<OracleBinary>   ("SELECT to_blob('3039')           FROM sys.dual").     Value, Is.EqualTo(arr));
+				Assert.That(conn.Execute<OracleBlob>     ("SELECT to_blob('3039')           FROM sys.dual").     Value, Is.EqualTo(arr));
+				Assert.That(conn.Execute<OracleDecimal>  ("SELECT Cast(1        as decimal) FROM sys.dual").     Value, Is.EqualTo(1));
+				Assert.That(conn.Execute<OracleString>   ("SELECT Cast('12345' as char(6))  FROM sys.dual").     Value, Is.EqualTo("12345 "));
+				Assert.That(conn.Execute<OracleClob>     ("SELECT ntextDataType     FROM AllTypes WHERE ID = 2").Value, Is.EqualTo("111"));
+				Assert.That(conn.Execute<OracleDate>     ("SELECT datetimeDataType  FROM AllTypes WHERE ID = 2").Value, Is.EqualTo(new DateTime(2012, 12, 12, 12, 12, 12)));
+				Assert.That(conn.Execute<OracleTimeStamp>("SELECT datetime2DataType FROM AllTypes WHERE ID = 2").Value, Is.EqualTo(new DateTime(2012, 12, 12, 12, 12, 12, 12)));
 			}
 		}
 
@@ -643,6 +654,60 @@ namespace Tests.DataProvider
 						DATETIME2DATATYPE = DateTime.Now
 					}
 				});
+			}
+		}
+
+		[Test, OracleDataContext]
+		public void NVarchar2InsertTest(string context)
+		{
+			using (var db = new DataConnection(context))
+			using (db.BeginTransaction())
+			{
+				db.InlineParameters = false;
+
+				var value   = "致我们最爱的母亲";
+
+				var id = db.GetTable<ALLTYPE>()
+					.InsertWithInt32Identity(() => new ALLTYPE
+					{
+						NVARCHARDATATYPE = value
+					});
+
+				var query = from p in db.GetTable<ALLTYPE>()
+							where p.ID == id
+							select new { p.NVARCHARDATATYPE };
+
+				var res = query.Single();
+				Assert.That(res.NVARCHARDATATYPE, Is.EqualTo(value));
+			}
+		}
+
+		[Test, OracleDataContext]
+		public void NVarchar2UpdateTest(string context)
+		{
+			using (var db = new DataConnection(context))
+			using (db.BeginTransaction())
+			{
+				db.InlineParameters = false;
+
+				var value = "致我们最爱的母亲";
+
+				var id = db.GetTable<ALLTYPE>()
+					.InsertWithInt32Identity(() => new ALLTYPE
+					{
+						INTDATATYPE = 123
+					});
+
+				db.GetTable<ALLTYPE>()
+					.Set(e => e.NVARCHARDATATYPE, () => value)
+					.Update();
+
+				var query = from p in db.GetTable<ALLTYPE>()
+							where p.ID == id
+							select new { p.NVARCHARDATATYPE };
+
+				var res = query.Single();
+				Assert.That(res.NVARCHARDATATYPE, Is.EqualTo(value));
 			}
 		}
 
@@ -852,7 +917,7 @@ namespace Tests.DataProvider
 		}
 
 		[Test, OracleDataContextWithBulkCopy(ParallelScope = ParallelScope.None)]
-		public void BulkCopyLinqTypesMultipleRows(string context, bool useAlternativeBulkCopy)
+		public void BulkCopyLinqTypesMultipleRows(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -862,12 +927,12 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
 		[Test, OracleDataContextWithBulkCopy]
-		public void BulkCopyLinqTypesProviderSpecific(string context, bool useAlternativeBulkCopy)
+		public void BulkCopyLinqTypesProviderSpecific(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -877,12 +942,12 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
 		[Test, OracleDataContextWithBulkCopy(ParallelScope = ParallelScope.None)]
-		public void BulkCopyRetrieveSequencesProviderSpecific(string context, bool useAlternativeBulkCopy)
+		public void BulkCopyRetrieveSequencesProviderSpecific(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -892,12 +957,12 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
 		[Test, OracleDataContextWithBulkCopy]
-		public void BulkCopyRetrieveSequencesMultipleRows(string context, bool useAlternativeBulkCopy)
+		public void BulkCopyRetrieveSequencesMultipleRows(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -907,12 +972,12 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
 		[Test, OracleDataContextWithBulkCopy]
-		public void BulkCopyRetrieveSequencesRowByRow(string context, bool useAlternativeBulkCopy)
+		public void BulkCopyRetrieveSequencesRowByRow(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -922,7 +987,7 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
@@ -944,7 +1009,7 @@ namespace Tests.DataProvider
 				{
 					MaxBatchSize       = 5,
 					//RetrieveSequence   = true,
-					KeepIdentity       = true,
+					KeepIdentity       = bulkCopyType != BulkCopyType.RowByRow,
 					BulkCopyType       = bulkCopyType,
 					NotifyAfter        = 3,
 					RowsCopiedCallback = copied => Debug.WriteLine(copied.RowsCopied)
@@ -961,7 +1026,7 @@ namespace Tests.DataProvider
 			}
 		}
 
-		[System.Data.Linq.Mapping.Table(Name = "stg_trade_information")]
+		[Table(Name = "stg_trade_information")]
 		public class Trade
 		{
 			[Column("STG_TRADE_ID")]          public int       ID             { get; set; }
@@ -1004,7 +1069,7 @@ namespace Tests.DataProvider
 		}
 
 		[Test, OracleDataContextWithBulkCopy]
-		public void BulkCopy1MultipleRows(string context, bool useAlternativeBulkCopy)
+		public void BulkCopy1MultipleRows(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -1014,12 +1079,12 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
 		[Test, OracleDataContextWithBulkCopy]
-		public void BulkCopy1ProviderSpecific(string context, bool useAlternativeBulkCopy)
+		public void BulkCopy1ProviderSpecific(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -1029,7 +1094,7 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
@@ -1067,7 +1132,7 @@ namespace Tests.DataProvider
 		}
 
 		[Test, OracleDataContextWithBulkCopy(ParallelScope = ParallelScope.None)]
-		public void BulkCopy21MultipleRows(string context, bool useAlternativeBulkCopy)
+		public void BulkCopy21MultipleRows(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -1077,12 +1142,12 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
 		[Test, OracleDataContextWithBulkCopy]
-		public void BulkCopy21ProviderSpecific(string context, bool useAlternativeBulkCopy)
+		public void BulkCopy21ProviderSpecific(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -1092,7 +1157,7 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
@@ -1127,7 +1192,7 @@ namespace Tests.DataProvider
 		}
 
 		[Test, OracleDataContextWithBulkCopy]
-		public void BulkCopy22MultipleRows(string context, bool useAlternativeBulkCopy)
+		public void BulkCopy22MultipleRows(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -1137,12 +1202,12 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
 		[Test, OracleDataContextWithBulkCopy]
-		public void BulkCopy22ProviderSpecific(string context, bool useAlternativeBulkCopy)
+		public void BulkCopy22ProviderSpecific(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			try
 			{
@@ -1152,7 +1217,7 @@ namespace Tests.DataProvider
 			}
 			finally
 			{
-				OracleTools.UseAlternativeBulkCopy = false;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 			}
 		}
 
@@ -1547,8 +1612,8 @@ namespace Tests.DataProvider
 			}
 			else
 			{
-				var value  = ((Oracle.DataAccess.Client.OracleDataReader)rd).GetOracleDecimal(idx);
-				var newval = Oracle.DataAccess.Types.OracleDecimal.SetPrecision(value, value > 0 ? ClrPrecision : (ClrPrecision - 1));
+				var value  = ((OracleDataReader)rd).GetOracleDecimal(idx);
+				var newval = OracleDecimal.SetPrecision(value, value > 0 ? ClrPrecision : (ClrPrecision - 1));
 
 				return newval.Value;
 			}
@@ -1557,9 +1622,9 @@ namespace Tests.DataProvider
 		[Table("DecimalOverflow")]
 		class DecimalOverflow2
 		{
-			[Column] public Oracle.ManagedDataAccess.Types.OracleDecimal Decimal1;
-			[Column] public Oracle.ManagedDataAccess.Types.OracleDecimal Decimal2;
-			[Column] public Oracle.ManagedDataAccess.Types.OracleDecimal Decimal3;
+			[Column] public OracleDecimal Decimal1;
+			[Column] public OracleDecimal Decimal2;
+			[Column] public OracleDecimal Decimal3;
 		}
 
 		[Test, IncludeDataContextSource(ProviderName.OracleManaged)]
@@ -1601,7 +1666,7 @@ namespace Tests.DataProvider
 		}
 
 		[Test, OracleDataContext]
-		public void UseAlternativeBulkCopyTest(string context)
+		public void UseAlternativeBulkCopyInsertIntoTest(string context)
 		{
 			var data = new List<UseAlternativeBulkCopy>(100);
 			for (var i = 0; i < 100; i++)
@@ -1609,7 +1674,7 @@ namespace Tests.DataProvider
 
 			using (var db = new DataConnection(context))
 			{
-				OracleTools.UseAlternativeBulkCopy = true;
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertInto;
 				db.CreateTable<UseAlternativeBulkCopy>();
 				try
 				{
@@ -1620,7 +1685,34 @@ namespace Tests.DataProvider
 				}
 				finally
 				{
-					OracleTools.UseAlternativeBulkCopy = false;
+					OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
+					db.DropTable<UseAlternativeBulkCopy>();
+				}
+			}
+
+		}
+
+		[Test, OracleDataContext]
+		public void UseAlternativeBulkCopyInsertDualTest(string context)
+		{
+			var data = new List<UseAlternativeBulkCopy>(100);
+			for (var i = 0; i < 100; i++)
+				data.Add(new UseAlternativeBulkCopy() { Id = i, Value = i });
+
+			using (var db = new DataConnection(context))
+			{
+				OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertDual;
+				db.CreateTable<UseAlternativeBulkCopy>();
+				try
+				{
+					db.BulkCopy(25, data);
+
+					var selected = db.GetTable<UseAlternativeBulkCopy>().ToList();
+					AreEqual(data, selected);
+				}
+				finally
+				{
+					OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 					db.DropTable<UseAlternativeBulkCopy>();
 				}
 			}
@@ -1678,12 +1770,11 @@ namespace Tests.DataProvider
 				{
 					db.DropTable<ClobEntity>();
 				}
-
 			}
 		}
 
 		[Test, OracleDataContextWithBulkCopyAttribute]
-		public void ClobBulkCopyTest(string context, bool useAlternativeBulkCopy)
+		public void ClobBulkCopyTest(string context, AlternativeBulkCopy useAlternativeBulkCopy)
 		{
 			var data = new List<ClobEntity>(new[] {new ClobEntity(1), new ClobEntity(2)});
 
@@ -1701,7 +1792,7 @@ namespace Tests.DataProvider
 				}
 				finally
 				{
-					OracleTools.UseAlternativeBulkCopy = false;
+					OracleTools.UseAlternativeBulkCopy = AlternativeBulkCopy.InsertAll;
 					db.DropTable<ClobEntity>();
 				}
 
@@ -1811,7 +1902,6 @@ namespace Tests.DataProvider
 			[Column,             Nullable] public byte[]  GUIDDATATYPE   { get; set; } // RAW(16)
 		}
 
-
 		[Test, OracleDataContext]
 		public void Issue539(string context)
 		{
@@ -1854,6 +1944,7 @@ namespace Tests.DataProvider
 		}
 
 		[Test, OracleDataContext]
+		[SkipCategory("Oracle.Native.New", ProviderName.OracleNative)]
 		public void Issue723Test1(string context)
 		{
 			var ms = new MappingSchema();
@@ -1872,7 +1963,7 @@ namespace Tests.DataProvider
 				{
 
 					var tableSpace = db.Execute<string>("SELECT default_tablespace FROM sys.dba_users WHERE username = 'ISSUE723SCHEMA'");
-					db.Execute("ALTER USER Issue723Schema quota unlimited on {0}".Args(tableSpace));
+					db.Execute($"ALTER USER Issue723Schema quota unlimited on {tableSpace}");
 
 					db.CreateTable<Issue723Table>(schemaName: "Issue723Schema");
 					Assert.That(db.LastQuery.Contains("Issue723Schema.Issue723Table"));
@@ -1904,10 +1995,11 @@ namespace Tests.DataProvider
 		}
 
 		[Test, OracleDataContext]
+		[SkipCategory("Oracle.Native.New", ProviderName.OracleNative)]
 		public void Issue723Test2(string context)
 		{
 			using (var db = GetDataContext(context))
-			using (new LocalTable<Issue723Table>(db))
+			using (db.CreateLocalTable<Issue723Table>())
 			{
 				Assert.True(true);
 			}
@@ -1929,7 +2021,7 @@ namespace Tests.DataProvider
 		public void Issue731Test(string context)
 		{
 			using (var db = GetDataContext(context))
-			using (new LocalTable<Issue731Table>(db))
+			using (db.CreateLocalTable<Issue731Table>())
 			{
 				var origin = new Issue731Table()
 				{
@@ -2017,7 +2109,7 @@ namespace Tests.DataProvider
 			{
 				var value = v as MyDate;
 				if (value == null) sb.Append("NULL");
-				else               sb.AppendFormat("DATE '{0}-{1}-{2}'", value.Year, value.Month, value.Day);
+				else               sb.Append($"DATE '{value.Year}-{value.Month}-{value.Day}'");
 			});
 
 			// Converts object property value to SQL.
@@ -2026,7 +2118,7 @@ namespace Tests.DataProvider
 			{
 				var value = (OracleTimeStampTZ)v;
 				if (value.IsNull) sb.Append("NULL");
-				else              sb.AppendFormat("DATE '{0}-{1}-{2}'", value.Year, value.Month, value.Day);
+				else              sb.Append($"DATE '{value.Year}-{value.Month}-{value.Day}'");
 			});
 
 			// Maps OracleTimeStampTZ to MyDate and the other way around.
@@ -2054,6 +2146,106 @@ namespace Tests.DataProvider
 					{
 						MyDate = list[0].MyDate
 					});
+			}
+		}
+
+		class BooleanMapping
+		{
+			private sealed class EqualityComparer : IEqualityComparer<BooleanMapping>
+			{
+				public bool Equals(BooleanMapping x, BooleanMapping y)
+				{
+					if (ReferenceEquals(x, y)) return true;
+					if (ReferenceEquals(x, null)) return false;
+					if (ReferenceEquals(y, null)) return false;
+					if (x.GetType() != y.GetType()) return false;
+					return x.Id == y.Id && x.BoolProp == y.BoolProp && x.NullableBoolProp == y.NullableBoolProp;
+				}
+
+				public int GetHashCode(BooleanMapping obj)
+				{
+					unchecked
+					{
+						var hashCode = obj.Id;
+						hashCode = (hashCode * 397) ^ obj.BoolProp.GetHashCode();
+						hashCode = (hashCode * 397) ^ obj.NullableBoolProp.GetHashCode();
+						return hashCode;
+					}
+				}
+			}
+
+			public static IEqualityComparer<BooleanMapping> Comparer { get; } = new EqualityComparer();
+
+			[PrimaryKey]
+			public int Id { get; set; }
+			[Column]
+			public bool BoolProp { get; set; }
+			[Column]
+			public bool? NullableBoolProp { get; set; }
+		}
+
+		[Test, IncludeDataContextSource(ProviderName.OracleManaged)]
+		public void BooleanMappingTests(string context)
+		{
+			var ms = new MappingSchema();
+
+			ms.SetConvertExpression<bool?, DataParameter>(_ =>
+				_ != null
+					? DataParameter.Char(null, _.HasValue && _.Value ? 'Y' : 'N')
+					: new DataParameter(null, DBNull.Value));
+
+			var testData = new[]
+			{
+				new BooleanMapping { Id = 1, BoolProp = true,  NullableBoolProp = true  },
+				new BooleanMapping { Id = 2, BoolProp = false, NullableBoolProp = false },
+				new BooleanMapping { Id = 3, BoolProp = true,  NullableBoolProp = null  }
+			};
+
+			using (var db = GetDataContext(context, ms))
+			using (var table = db.CreateLocalTable<BooleanMapping>())
+			{
+				table.BulkCopy(testData);
+				var values = table.ToArray();
+
+				AreEqual(testData, values, BooleanMapping.Comparer);
+			}
+		}
+
+		[Table("AllTypes")]
+		public class TestIdentifiersTable1
+		{
+			[Column]
+			public int Id { get; set; }
+		}
+
+		[Table("ALLTYPES")]
+		public class TestIdentifiersTable2
+		{
+			[Column("ID")]
+			public int Id { get; set; }
+		}
+
+		[Test, OracleDataContext]
+		public void TestLowercaseIdentifiersQuotation(string context)
+		{
+			using (var db = GetDataContext(context))
+			{
+				var initial = OracleTools.DontEscapeLowercaseIdentifiers;
+				try
+				{
+					OracleTools.DontEscapeLowercaseIdentifiers = true;
+					db.GetTable<TestIdentifiersTable1>().ToList();
+					db.GetTable<TestIdentifiersTable2>().ToList();
+
+					Query.ClearCaches();
+					OracleTools.DontEscapeLowercaseIdentifiers = false;
+					Assert.Throws<OracleException>(() => db.GetTable<TestIdentifiersTable1>().ToList());
+					db.GetTable<TestIdentifiersTable2>().ToList();
+				}
+				finally
+				{
+					OracleTools.DontEscapeLowercaseIdentifiers = initial;
+				}
 			}
 		}
 	}
